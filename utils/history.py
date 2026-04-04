@@ -1,36 +1,15 @@
-"""
-History manager – persists completed test runs to a local JSON file.
-Each record stores the config, final aggregate metrics, per-endpoint stats,
-and the full time-series so the UI can replay charts.
-"""
+"""History manager – persists completed test runs to MongoDB."""
 
-import json
 import logging
 import time
 import uuid
-from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
+from utils.mongo import collection
 
 logger = logging.getLogger(__name__)
 
-HISTORY_FILE = Path("locust_history.json")
-MAX_RECORDS = 50   # keep the last N runs
-
-
-def _load() -> list[dict]:
-    if HISTORY_FILE.exists():
-        try:
-            return json.loads(HISTORY_FILE.read_text())
-        except Exception as e:
-            logger.warning(f"Could not load history: {e}")
-    return []
-
-
-def _save(records: list[dict]) -> None:
-    try:
-        HISTORY_FILE.write_text(json.dumps(records, indent=2))
-    except Exception as e:
-        logger.warning(f"Could not save history: {e}")
+MAX_RECORDS = 50  # keep the last N runs
 
 
 def save_run(
@@ -39,7 +18,7 @@ def save_run(
     timeseries: list[dict],
     script: Optional[str] = None,
 ) -> str:
-    """Persist a finished test run. Returns the generated run_id."""
+    """Persist a finished test run to MongoDB. Returns the generated run_id."""
     run_id = str(uuid.uuid4())[:8]
     record = {
         "run_id": run_id,
@@ -50,18 +29,24 @@ def save_run(
         "timeseries": timeseries,
         "script": script,
     }
-    records = _load()
-    records.insert(0, record)
-    records = records[:MAX_RECORDS]
-    _save(records)
-    logger.info(f"Saved run {run_id} to history ({len(records)} total)")
+
+    collection.insert_one(record)
+
+    # Keep only the latest MAX_RECORDS records
+    stale = collection.find({}, {"_id": 1}).sort("ts", -1).skip(MAX_RECORDS)
+    stale_ids = [doc["_id"] for doc in stale]
+    if stale_ids:
+        collection.delete_many({"_id": {"$in": stale_ids}})
+
+    logger.info(f"Saved run {run_id} to MongoDB history")
     return run_id
 
 
 def list_runs() -> list[dict]:
     """Return summary list (no per-endpoint stats, no script, no timeseries)."""
     out = []
-    for r in _load():
+    cursor = collection.find({}, {"_id": 0}).sort("ts", -1)
+    for r in cursor:
         m = r.get("metrics", {})
         out.append({
             "run_id": r["run_id"],
@@ -81,25 +66,18 @@ def list_runs() -> list[dict]:
 
 
 def get_run(run_id: str) -> Optional[dict]:
-    for r in _load():
-        if r["run_id"] == run_id:
-            return r
-    return None
+    return collection.find_one({"run_id": run_id}, {"_id": 0})
 
 
 def delete_run(run_id: str) -> bool:
-    records = _load()
-    filtered = [r for r in records if r["run_id"] != run_id]
-    if len(filtered) == len(records):
-        return False
-    _save(filtered)
-    return True
+    result = collection.delete_one({"run_id": run_id})
+    return result.deleted_count > 0
 
 
 def clear_all() -> int:
-    records = _load()
-    _save([])
-    return len(records)
+    count = collection.count_documents({})
+    collection.delete_many({})
+    return count
 
 
 def _make_label(config: dict) -> str:
