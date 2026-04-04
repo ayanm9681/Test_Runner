@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from models import TestConfig, TestMetrics, TestStatus
 from utils.runner import LocustRunner
 from utils.script_generator import generate_locust_script
+from utils.mongo import collection as mongo_collection, connect_mongo, close_mongo
 from utils import history as hist
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -24,9 +25,13 @@ runner = LocustRunner()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("LocustForge API starting up")
+    connect_mongo()
+    logger.info(f"Connected to MongoDB collection {mongo_collection.full_name}")
     yield
     if runner.is_running():
         await runner.stop()
+    close_mongo()
+    logger.info("MongoDB connection closed")
     logger.info("LocustForge API shut down")
 
 
