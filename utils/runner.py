@@ -76,7 +76,20 @@ class LocustRunner:
         ]
 
         logger.info(f"Starting locust: {' '.join(cmd)}")
-        self._process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setsid)
+        if os.name == "nt":
+            self._process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+        else:
+            self._process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid,
+            )
 
         asyncio.create_task(self._watch_process())
         self._ts_task = asyncio.create_task(self._collect_timeseries())
@@ -85,12 +98,20 @@ class LocustRunner:
         if self._process and self._process.poll() is None:
             self._status = TestStatus.STOPPING
             try:
-                os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
-                await asyncio.sleep(2)
-                if self._process.poll() is None:
-                    os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
+                if os.name == "nt":
+                    self._process.send_signal(signal.CTRL_BREAK_EVENT)
+                    await asyncio.sleep(2)
+                    if self._process.poll() is None:
+                        self._process.terminate()
+                else:
+                    os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
+                    await asyncio.sleep(2)
+                    if self._process.poll() is None:
+                        os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except Exception as exc:
+                logger.warning(f"Error stopping locust process: {exc}")
         self._status = TestStatus.COMPLETED
 
     async def _watch_process(self):
