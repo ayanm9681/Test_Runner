@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LocustForge — API Load Testing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#09090d;--s1:#0f1017;--s2:#141620;--border:#1c1f2e;--accent:#f97316;--a2:#fb923c;--green:#4ade80;--red:#f87171;--yellow:#fbbf24;--blue:#60a5fa;--purple:#a78bfa;--text:#e2e8f0;--muted:#4b5563;--mono:'JetBrains Mono',monospace;--sans:'Syne',sans-serif}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:14px;height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);height:100vh;display:grid;grid-template-rows:54px 1fr;overflow:hidden}
+
+/* ── Header ── */
+header{display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;border-bottom:1px solid var(--border);background:rgba(15,16,23,.95);backdrop-filter:blur(12px);z-index:200}
+.logo{display:flex;align-items:center;gap:.6rem;text-decoration:none;color:inherit}
+.logo-hex{width:30px;height:30px;background:var(--accent);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);display:grid;place-items:center}
+.logo-hex svg{width:14px;height:14px}
+.logo-text{font-size:1.1rem;font-weight:800;letter-spacing:-.02em}
+.logo-text span{color:var(--accent)}
+.header-right{display:flex;align-items:center;gap:.75rem}
+.pill{display:flex;align-items:center;gap:.4rem;padding:.3rem .75rem;border-radius:999px;border:1px solid var(--border);font-family:var(--mono);font-size:.7rem;font-weight:500;transition:all .3s}
+.pill-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.pill.running{border-color:var(--green);color:var(--green)}
+.pill.running .pill-dot{background:var(--green);animation:blink 1.2s infinite}
+.pill.completed{border-color:var(--blue);color:var(--blue)}
+.pill.completed .pill-dot{background:var(--blue)}
+.pill.failed{border-color:var(--red);color:var(--red)}
+.pill.failed .pill-dot{background:var(--red)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ── Layout ── */
+.layout{display:grid;grid-template-columns:340px 1fr;overflow:hidden;height:100%}
+
+/* ── Left sidebar ── */
+.sidebar{background:var(--s1);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-tabs{display:flex;border-bottom:1px solid var(--border)}
+.stab{flex:1;padding:.7rem .5rem;font-size:.68rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s}
+.stab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.stab:hover:not(.active){color:var(--text)}
+.sidebar-body{flex:1;overflow-y:auto;padding:1rem}
+.sidebar-body::-webkit-scrollbar{width:3px}
+.sidebar-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ── Forms ── */
+.fsec{margin-bottom:1.25rem}
+.fsec-title{font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:.65rem;display:flex;align-items:center;gap:.4rem}
+.fsec-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.fg{margin-bottom:.6rem}
+.fg label{display:block;font-size:.63rem;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:.28rem}
+.fg input,.fg select,.fg textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:.48rem .65rem;color:var(--text);font-family:var(--mono);font-size:.78rem;outline:none;transition:border-color .2s;resize:vertical}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent)}
+.fg input::placeholder{color:var(--muted)}
+.fg select option{background:var(--bg)}
+
+/* ── Endpoint cards ── */
+.ep-list{display:flex;flex-direction:column;gap:.5rem}
+.ep-card{background:var(--bg);border:1px solid var(--border);border-radius:7px;overflow:hidden;transition:border-color .2s}
+.ep-card:hover{border-color:rgba(249,115,22,.4)}
+.ep-hdr{display:flex;align-items:center;gap:.5rem;padding:.55rem .65rem;cursor:pointer;user-select:none}
+.mb{font-family:var(--mono);font-size:.6rem;font-weight:700;padding:.18rem .38rem;border-radius:3px;min-width:44px;text-align:center}
+.GET{background:rgba(96,165,250,.12);color:var(--blue)}.POST{background:rgba(74,222,128,.12);color:var(--green)}.PUT{background:rgba(251,191,36,.12);color:var(--yellow)}.PATCH{background:rgba(251,191,36,.1);color:#f59e0b}.DELETE{background:rgba(248,113,113,.12);color:var(--red)}
+.ep-name{flex:1;font-size:.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ep-path{font-family:var(--mono);font-size:.7rem;color:var(--muted);flex:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ico-btn{width:24px;height:24px;border-radius:4px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.8rem;display:grid;place-items:center;transition:all .15s;flex-shrink:0}
+.ico-btn:hover{background:rgba(249,115,22,.15);color:var(--accent)}
+.ico-btn.del:hover{background:rgba(248,113,113,.15);color:var(--red)}
+.ep-body{padding:0 .65rem .65rem;display:none}
+.ep-body.open{display:block}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.38rem;padding:.55rem .9rem;border-radius:6px;border:none;cursor:pointer;font-family:var(--sans);font-size:.78rem;font-weight:700;letter-spacing:.02em;transition:all .15s}
+.btn-p{background:var(--accent);color:#fff}.btn-p:hover{background:var(--a2);transform:translateY(-1px)}.btn-p:active{transform:none}
+.btn-s{background:transparent;color:var(--text);border:1px solid var(--border)}.btn-s:hover{border-color:var(--accent);color:var(--accent)}
+.btn-d{background:rgba(248,113,113,.1);color:var(--red);border:1px solid rgba(248,113,113,.25)}.btn-d:hover{background:rgba(248,113,113,.2)}
+.btn-sm{padding:.38rem .65rem;font-size:.72rem}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none!important}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Action bar ── */
+.act-bar{padding:.85rem 1rem;border-top:1px solid var(--border);display:flex;gap:.5rem}
+
+/* ── Right panel ── */
+.right{display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--s1);padding:0 1.25rem;gap:.2rem;flex-shrink:0}
+.tab{padding:.75rem .85rem;font-size:.68rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;transition:all .2s;white-space:nowrap}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab:hover:not(.active){color:var(--text)}
+.tab-body{flex:1;overflow-y:auto;padding:1.25rem}
+.tab-body::-webkit-scrollbar{width:4px}
+.tab-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.tpane{display:none}.tpane.active{display:block}
+
+/* ── Metric grid ── */
+.mcard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:.65rem;margin-bottom:1.25rem}
+.mcard{background:var(--s1);border:1px solid var(--border);border-radius:9px;padding:.9rem;transition:border-color .3s}
+.mcard.hl{border-color:var(--accent)}
+.ml{font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem}
+.mv{font-family:var(--mono);font-size:1.5rem;font-weight:700;line-height:1}
+.ms{font-size:.62rem;color:var(--muted);margin-top:.22rem}
+.mv.g{color:var(--green)}.mv.w{color:var(--yellow)}.mv.b{color:var(--red)}
+
+/* ── Progress ── */
+.prog-wrap{background:var(--border);border-radius:999px;height:3px;overflow:hidden;margin-bottom:1.25rem}
+.prog-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--a2));border-radius:999px;transition:width .5s ease;width:0%}
+
+/* ── Charts ── */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:.85rem;margin-bottom:1.25rem}
+.chart-card{background:var(--s1);border:1px solid var(--border);border-radius:9px;padding:1rem}
+.chart-title{font-size:.65rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:.75rem}
+.chart-wrap{position:relative;height:160px}
+
+/* ── Stats table ── */
+.tbl-wrap{background:var(--s1);border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.stbl{width:100%;border-collapse:collapse}
+.stbl th{font-size:.6rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding:.65rem .8rem;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+.stbl td{padding:.58rem .8rem;font-family:var(--mono);font-size:.74rem;border-bottom:1px solid rgba(28,31,46,.6)}
+.stbl tr:last-child td{border-bottom:none}
+.stbl tr:hover td{background:rgba(249,115,22,.03)}
+.fp{font-weight:600}.fp.g{color:var(--green)}.fp.w{color:var(--yellow)}.fp.b{color:var(--red)}
+
+/* ── History ── */
+.hist-list{display:flex;flex-direction:column;gap:.5rem}
+.hist-item{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:.75rem .9rem;cursor:pointer;transition:border-color .2s;display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:start}
+.hist-item:hover{border-color:rgba(249,115,22,.4)}
+.hist-item.active{border-color:var(--accent)}
+.hi-url{font-size:.75rem;font-weight:600;margin-bottom:.25rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hi-meta{font-family:var(--mono);font-size:.65rem;color:var(--muted);display:flex;gap:.75rem;flex-wrap:wrap}
+.hi-stats{text-align:right}
+.hi-rps{font-family:var(--mono);font-size:.95rem;font-weight:700;color:var(--accent)}
+.hi-label{font-size:.6rem;color:var(--muted)}
+.hi-del{align-self:start}
+
+/* ── Script ── */
+.script-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}
+.code-block{background:var(--s1);border:1px solid var(--border);border-radius:9px;padding:1.1rem;font-family:var(--mono);font-size:.75rem;line-height:1.75;overflow-x:auto;white-space:pre;color:#cbd5e1;max-height:60vh;overflow-y:auto}
+.ck{color:#c084fc}.cf{color:var(--yellow)}.cs{color:var(--green)}.cc{color:var(--muted)}.cd{color:var(--accent)}
+
+/* ── Empty state ── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:280px;color:var(--muted);gap:.75rem;text-align:center}
+.empty svg{opacity:.2}
+.empty p{font-size:.82rem}
+
+/* ── Error items ── */
+.err-item{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.18);border-radius:7px;padding:.7rem .9rem;margin-bottom:.45rem}
+.err-name{color:var(--red);font-weight:600;font-size:.78rem;margin-bottom:.22rem}
+.err-meta{font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+
+/* ── Toast ── */
+#toast{position:fixed;bottom:1.25rem;right:1.25rem;background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:.65rem 1rem;font-size:.78rem;font-weight:600;transform:translateY(60px);opacity:0;transition:all .3s;z-index:999;pointer-events:none}
+#toast.show{transform:translateY(0);opacity:1}
+#toast.ok{border-color:var(--green);color:var(--green)}
+#toast.err{border-color:var(--red);color:var(--red)}
+
+/* ── History detail overlay ── */
+.hdtl{display:none;position:fixed;inset:0;background:rgba(9,9,13,.85);z-index:300;padding:2rem;overflow-y:auto}
+.hdtl.open{display:block}
+.hdtl-inner{background:var(--s1);border:1px solid var(--border);border-radius:12px;max-width:900px;margin:0 auto;padding:1.5rem}
+.hdtl-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem}
+.hdtl-title{font-size:1rem;font-weight:800}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">
+    <div class="logo-hex">
+      <svg viewBox="0 0 24 24" fill="#fff" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    </div>
+    <span class="logo-text">Locust<span>Forge</span></span>
+  </a>
+  <div class="header-right">
+    <div class="pill" id="statusPill"><span class="pill-dot"></span><span id="statusText">IDLE</span></div>
+    <button class="btn btn-s btn-sm" id="historyBtn">History</button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="sidebar-tabs">
+      <button class="stab active" data-stab="config">Config</button>
+      <button class="stab" data-stab="history">History</button>
+    </div>
+
+    <!-- Config tab -->
+    <div class="sidebar-body" id="stab-config">
+      <div class="fsec">
+        <div class="fsec-title">Target</div>
+        <div class="fg"><label>Base URL</label><input id="baseUrl" type="text" placeholder="https://api.example.com" value="https://jsonplaceholder.typicode.com"/></div>
+      </div>
+      <div class="fsec">
+        <div class="fsec-title">Load Profile</div>
+        <div class="frow">
+          <div class="fg"><label>Users</label><input id="users" type="number" value="10" min="1" max="1000"/></div>
+          <div class="fg"><label>Spawn Rate</label><input id="spawnRate" type="number" value="2" min="0.1" step="0.1"/></div>
+        </div>
+        <div class="frow">
+          <div class="fg"><label>Duration (s)</label><input id="duration" type="number" value="30" min="5" max="600"/></div>
+          <div class="fg"><label>Think Min (s)</label><input id="thinkMin" type="number" value="0.5" min="0" step="0.1"/></div>
+        </div>
+        <div class="frow">
+          <div class="fg"><label>Think Max (s)</label><input id="thinkMax" type="number" value="2" min="0" step="0.1"/></div>
+        </div>
+      </div>
+      <div class="fsec">
+        <div class="fsec-title">Endpoints</div>
+        <div class="ep-list" id="epList"></div>
+        <button class="btn btn-s btn-sm" id="addEpBtn" style="width:100%;margin-top:.5rem">+ Add Endpoint</button>
+      </div>
+    </div>
+
+    <!-- History sidebar tab -->
+    <div class="sidebar-body" id="stab-history" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+        <span style="font-size:.72rem;color:var(--muted);font-weight:600">PAST RUNS</span>
+        <button class="btn btn-d btn-sm" id="clearHistBtn">Clear All</button>
+      </div>
+      <div class="hist-list" id="histList">
+        <div class="empty"><p>No runs saved yet.</p></div>
+      </div>
+    </div>
+
+    <div class="act-bar">
+      <button class="btn btn-p" id="startBtn" style="flex:1">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Run Test
+      </button>
+      <button class="btn btn-s btn-sm" id="previewBtn">Script</button>
+      <button class="btn btn-d" id="stopBtn" disabled>■ Stop</button>
+    </div>
+  </aside>
+
+  <!-- ── RIGHT PANEL ── -->
+  <section class="right">
+    <div class="tabs">
+      <button class="tab active" data-tab="overview">Overview</button>
+      <button class="tab" data-tab="charts">Live Charts</button>
+      <button class="tab" data-tab="endpoints">Endpoints</button>
+      <button class="tab" data-tab="errors">Errors</button>
+      <button class="tab" data-tab="script">Script</button>
+    </div>
+
+    <div class="tab-body">
+
+      <!-- Overview -->
+      <div class="tpane active" id="tab-overview">
+        <div class="prog-wrap" id="progWrap" style="display:none"><div class="prog-bar" id="progBar"></div></div>
+        <div class="mcard-grid">
+          <div class="mcard" id="mc-rps"><div class="ml">Requests/sec</div><div class="mv" id="mv-rps">—</div><div class="ms">throughput</div></div>
+          <div class="mcard"><div class="ml">Avg Response</div><div class="mv" id="mv-avg">—</div><div class="ms">milliseconds</div></div>
+          <div class="mcard"><div class="ml">p95 Latency</div><div class="mv" id="mv-p95">—</div><div class="ms">milliseconds</div></div>
+          <div class="mcard"><div class="ml">p99 Latency</div><div class="mv" id="mv-p99">—</div><div class="ms">milliseconds</div></div>
+          <div class="mcard"><div class="ml">Total Requests</div><div class="mv" id="mv-total">—</div><div class="ms">sent</div></div>
+          <div class="mcard"><div class="ml">Failures</div><div class="mv" id="mv-fail">—</div><div class="ms">total</div></div>
+          <div class="mcard"><div class="ml">Failure Rate</div><div class="mv" id="mv-frate">—</div><div class="ms">percent</div></div>
+          <div class="mcard"><div class="ml">Users</div><div class="mv" id="mv-users">—</div><div class="ms">concurrent</div></div>
+          <div class="mcard"><div class="ml">Elapsed</div><div class="mv" id="mv-elapsed">—</div><div class="ms">seconds</div></div>
+        </div>
+        <div id="ovEmpty" class="empty">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <p>Configure endpoints and click <strong>Run Test</strong> to begin.</p>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="tpane" id="tab-charts">
+        <div class="charts-grid">
+          <div class="chart-card"><div class="chart-title">Requests / sec</div><div class="chart-wrap"><canvas id="chartRps"></canvas></div></div>
+          <div class="chart-card"><div class="chart-title">Response Time (ms)</div><div class="chart-wrap"><canvas id="chartRt"></canvas></div></div>
+          <div class="chart-card"><div class="chart-title">Failures</div><div class="chart-wrap"><canvas id="chartFail"></canvas></div></div>
+          <div class="chart-card"><div class="chart-title">Active Users</div><div class="chart-wrap"><canvas id="chartUsers"></canvas></div></div>
+        </div>
+        <div id="chartsEmpty" class="empty">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          <p>Charts will populate as the test runs.</p>
+        </div>
+      </div>
+
+      <!-- Endpoints -->
+      <div class="tpane" id="tab-endpoints">
+        <div id="epEmpty" class="empty">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          <p>No stats yet. Start a test to see per-endpoint data.</p>
+        </div>
+        <div class="tbl-wrap" id="tblWrap" style="display:none">
+          <table class="stbl">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Reqs</th><th>Fails</th><th>Fail%</th><th>Avg ms</th><th>p50</th><th>p95</th><th>p99</th><th>RPS</th></tr></thead>
+            <tbody id="tblBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Errors -->
+      <div class="tpane" id="tab-errors">
+        <div id="errEmpty" class="empty">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+          <p>No errors recorded.</p>
+        </div>
+        <div id="errList"></div>
+      </div>
+
+      <!-- Script -->
+      <div class="tpane" id="tab-script">
+        <div class="script-bar">
+          <span style="font-size:.75rem;color:var(--muted)">Generated Locust script</span>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn btn-s btn-sm" id="copyScriptBtn">Copy</button>
+            <button class="btn btn-s btn-sm" id="dlScriptBtn">Download</button>
+          </div>
+        </div>
+        <div id="scriptEmpty" class="empty">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <p>Click <strong>Script</strong> button or run a test to generate.</p>
+        </div>
+        <pre class="code-block" id="scriptBlock" style="display:none"></pre>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<!-- History detail modal -->
+<div class="hdtl" id="hdtl">
+  <div class="hdtl-inner">
+    <div class="hdtl-hdr">
+      <div class="hdtl-title" id="hdtlTitle">Run Details</div>
+      <button class="btn btn-s btn-sm" id="hdtlClose">✕ Close</button>
+    </div>
+    <div id="hdtlBody"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+const S = {
+  endpoints: [],
+  running: false,
+  ws: null,
+  duration: 30,
+  startTime: null,
+  progTimer: null,
+  lastMetrics: null,
+  charts: {},
+};
+
+// ═══════════════════════════════════════════════════════════════
+// DEFAULTS
+// ═══════════════════════════════════════════════════════════════
+const DEFAULTS = [
+  { name:"List Posts",  method:"GET",  path:"/posts",   weight:3, headers:null, body:null },
+  { name:"Get Post",    method:"GET",  path:"/posts/1", weight:2, headers:null, body:null },
+  { name:"Create Post", method:"POST", path:"/posts",   weight:1, headers:null, body:{title:"test",body:"content",userId:1} },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════════
+function toast(msg, type="ok") {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.className = `show ${type}`;
+  setTimeout(() => el.className = "", 2800);
+}
+
+function setStatus(s) {
+  const pill = document.getElementById("statusPill");
+  const txt  = document.getElementById("statusText");
+  pill.className = `pill ${s}`;
+  txt.textContent = s.toUpperCase();
+}
+
+function fmtN(v) { return (v==null||v===undefined) ? "—" : Number(v).toLocaleString(); }
+function fmtMs(v) { if (!v) return "—"; return v < 1000 ? v.toFixed(0)+"ms" : (v/1000).toFixed(2)+"s"; }
+function fmtDate(ts) {
+  const d = new Date(ts*1000);
+  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+}
+function rtClass(v) { if (v < 200) return "g"; if (v < 1000) return "w"; return "b"; }
+function fpClass(v) { if (v <= 1) return "g"; if (v <= 10) return "w"; return "b"; }
+
+// ═══════════════════════════════════════════════════════════════
+// SIDEBAR TABS
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll(".stab").forEach(t => {
+  t.addEventListener("click", () => {
+    document.querySelectorAll(".stab").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    document.getElementById("stab-config").style.display = t.dataset.stab === "config" ? "" : "none";
+    document.getElementById("stab-history").style.display = t.dataset.stab === "history" ? "" : "none";
+    if (t.dataset.stab === "history") loadHistory();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN TABS
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tpane").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    document.getElementById(`tab-${t.dataset.tab}`).classList.add("active");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ENDPOINTS
+// ═══════════════════════════════════════════════════════════════
+function renderEps() {
+  const list = document.getElementById("epList");
+  list.innerHTML = "";
+  S.endpoints.forEach((ep, i) => {
+    const d = document.createElement("div");
+    d.className = "ep-card";
+    d.innerHTML = `
+      <div class="ep-hdr" onclick="toggleEp(${i})">
+        <span class="mb ${ep.method}">${ep.method}</span>
+        <span class="ep-name">${ep.name||"Unnamed"}</span>
+        <span class="ep-path">${ep.path}</span>
+        <button class="ico-btn" onclick="event.stopPropagation();dupEp(${i})" title="Duplicate">⧉</button>
+        <button class="ico-btn del" onclick="event.stopPropagation();delEp(${i})" title="Remove">✕</button>
+      </div>
+      <div class="ep-body" id="epb-${i}">
+        <div class="frow" style="margin-top:.5rem">
+          <div class="fg"><label>Name</label><input value="${ep.name}" oninput="upEp(${i},'name',this.value)" placeholder="Name"/></div>
+          <div class="fg"><label>Method</label><select onchange="upEp(${i},'method',this.value)">${["GET","POST","PUT","PATCH","DELETE"].map(m=>`<option ${ep.method===m?"selected":""}>${m}</option>`).join("")}</select></div>
+        </div>
+        <div class="fg"><label>Path</label><input value="${ep.path}" oninput="upEp(${i},'path',this.value)" placeholder="/api/resource"/></div>
+        <div class="frow">
+          <div class="fg"><label>Weight</label><input type="number" value="${ep.weight}" min="1" max="100" oninput="upEp(${i},'weight',+this.value)"/></div>
+        </div>
+        <div class="fg"><label>Body (JSON)</label><input value="${ep.body?JSON.stringify(ep.body):""}" oninput="upEp(${i},'body',this.value)" placeholder='{"key":"value"}'/></div>
+        <div class="fg"><label>Headers (JSON)</label><input value="${ep.headers?JSON.stringify(ep.headers):""}" oninput="upEp(${i},'headers',this.value)" placeholder='{"Authorization":"Bearer ..."}'/></div>
+      </div>`;
+    list.appendChild(d);
+  });
+}
+
+function toggleEp(i) { document.getElementById(`epb-${i}`).classList.toggle("open"); }
+function delEp(i)    { S.endpoints.splice(i,1); renderEps(); }
+function dupEp(i)    { S.endpoints.push({...S.endpoints[i], name:S.endpoints[i].name+" (copy)"}); renderEps(); }
+function upEp(i,k,v) {
+  if (k==="body"||k==="headers") { try{v=v?JSON.parse(v):null;}catch{v=null;} }
+  S.endpoints[i][k]=v;
+}
+
+document.getElementById("addEpBtn").addEventListener("click", () => {
+  S.endpoints.push({name:"New Endpoint",method:"GET",path:"/api/",weight:1,headers:null,body:null});
+  renderEps();
+  setTimeout(()=>toggleEp(S.endpoints.length-1),40);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// BUILD CONFIG
+// ═══════════════════════════════════════════════════════════════
+function buildConfig() {
+  return {
+    base_url: document.getElementById("baseUrl").value.trim(),
+    users: +document.getElementById("users").value,
+    spawn_rate: +document.getElementById("spawnRate").value,
+    duration: +document.getElementById("duration").value,
+    think_time_min: +document.getElementById("thinkMin").value,
+    think_time_max: +document.getElementById("thinkMax").value,
+    endpoints: S.endpoints.map(e=>({name:e.name,method:e.method,path:e.path,weight:e.weight,headers:e.headers,body:e.body})),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// START / STOP
+// ═══════════════════════════════════════════════════════════════
+document.getElementById("startBtn").addEventListener("click", async () => {
+  if (!S.endpoints.length) { toast("Add at least one endpoint","err"); return; }
+  const cfg = buildConfig();
+  const btn = document.getElementById("startBtn");
+  btn.innerHTML = '<span class="spin"></span> Starting…'; btn.disabled = true;
+  try {
+    const r = await fetch("/api/test/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)});
+    if (!r.ok) { const d=await r.json(); throw new Error(d.detail||"Failed"); }
+    S.running=true; S.duration=cfg.duration; S.startTime=Date.now();
+    document.getElementById("stopBtn").disabled=false;
+    btn.innerHTML='<span class="spin"></span> Running…';
+    setStatus("running"); toast("Test started!","ok");
+    startProg(); initCharts(); connectWS();
+    document.getElementById("ovEmpty").style.display="none";
+    document.getElementById("chartsEmpty").style.display="none";
+  } catch(e) {
+    toast(e.message,"err");
+    btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test';
+    btn.disabled=false;
+  }
+});
+
+document.getElementById("stopBtn").addEventListener("click", async () => {
+  await fetch("/api/test/stop",{method:"POST"});
+  S.running=false; resetUI(); toast("Test stopped.","ok"); setStatus("completed");
+});
+
+function resetUI() {
+  const btn=document.getElementById("startBtn");
+  btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test';
+  btn.disabled=false;
+  document.getElementById("stopBtn").disabled=true;
+  clearInterval(S.progTimer);
+  document.getElementById("progWrap").style.display="none";
+  document.getElementById("progBar").style.width="0%";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROGRESS
+// ═══════════════════════════════════════════════════════════════
+function startProg() {
+  document.getElementById("progWrap").style.display="block";
+  S.progTimer = setInterval(()=>{
+    const pct = Math.min(((Date.now()-S.startTime)/1000/S.duration)*100, 100);
+    document.getElementById("progBar").style.width = pct+"%";
+    if (pct>=100) clearInterval(S.progTimer);
+  }, 500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHARTS
+// ═══════════════════════════════════════════════════════════════
+const CHART_OPTS = (color) => ({
+  responsive:true, maintainAspectRatio:false, animation:false,
+  plugins:{legend:{display:false},tooltip:{mode:"index",intersect:false}},
+  scales:{
+    x:{ticks:{color:"#4b5563",font:{size:10},maxTicksLimit:8},grid:{color:"rgba(28,31,46,.6)"}},
+    y:{ticks:{color:"#4b5563",font:{size:10}},grid:{color:"rgba(28,31,46,.6)"},beginAtZero:true}
+  }
+});
+
+function mkDataset(color, fill=false) {
+  return {data:[],borderColor:color,backgroundColor:fill?color.replace(")",",0.15)").replace("rgb","rgba"):"transparent",
+    borderWidth:2,pointRadius:0,tension:.35,fill};
+}
+
+function initCharts() {
+  ["chartRps","chartRt","chartFail","chartUsers"].forEach(id => {
+    const ctx = document.getElementById(id);
+    if (S.charts[id]) { S.charts[id].destroy(); }
+    const colors = {chartRps:"rgb(249,115,22)",chartRt:"rgb(96,165,250)",chartFail:"rgb(248,113,113)",chartUsers:"rgb(167,139,250)"};
+    const c = colors[id];
+    S.charts[id] = new Chart(ctx.getContext("2d"), {
+      type:"line",
+      data:{labels:[], datasets:[mkDataset(c, true)]},
+      options: CHART_OPTS(c)
+    });
+  });
+}
+
+function pushChartPoint(ts, rps, avgRt, p95Rt, failures, users) {
+  const label = ts+"s";
+  const push = (id, val) => {
+    const ch = S.charts[id]; if (!ch) return;
+    ch.data.labels.push(label);
+    ch.data.datasets[0].data.push(val);
+    if (ch.data.labels.length > 60) { ch.data.labels.shift(); ch.data.datasets[0].data.shift(); }
+    ch.update("none");
+  };
+  push("chartRps", rps);
+  push("chartRt", avgRt);
+  push("chartFail", failures);
+  push("chartUsers", users);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════════════════
+function connectWS() {
+  if (S.ws) S.ws.close();
+  const proto = location.protocol==="https:"?"wss":"ws";
+  S.ws = new WebSocket(`${proto}://${location.host}/ws/metrics`);
+  S.ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    S.lastMetrics = m;
+    updateOverview(m);
+    updateTable(m.stats || []);
+    updateErrors(m.errors || []);
+    // Chart from timeseries
+    if (m.timeseries && m.timeseries.length) {
+      const last = m.timeseries[m.timeseries.length-1];
+      pushChartPoint(last.t, last.rps, last.avg_rt, last.p95_rt, last.failures, last.users);
+    }
+    if (m.status==="completed"||m.status==="failed") {
+      S.running=false; resetUI(); setStatus(m.status); S.ws.close();
+      fetchScript(); loadHistory();
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OVERVIEW
+// ═══════════════════════════════════════════════════════════════
+function updateOverview(m) {
+  const avg = m.avg_response_time||0;
+  const p95 = m.p95_response_time||0;
+  const total = m.total_requests||0;
+  const fails = m.total_failures||0;
+  const frate = total>0 ? (fails/total*100).toFixed(1) : "0.0";
+
+  document.getElementById("mv-rps").textContent    = m.rps||"0";
+  document.getElementById("mv-avg").textContent    = avg?avg.toFixed(0)+"ms":"—";
+  document.getElementById("mv-p95").textContent    = p95?p95.toFixed(0)+"ms":"—";
+  document.getElementById("mv-p99").textContent    = "—"; // from per-endpoint aggregate
+  document.getElementById("mv-total").textContent  = fmtN(total);
+  document.getElementById("mv-fail").textContent   = fmtN(fails);
+  document.getElementById("mv-frate").textContent  = frate+"%";
+  document.getElementById("mv-users").textContent  = m.user_count||"—";
+  document.getElementById("mv-elapsed").textContent= m.elapsed?m.elapsed.toFixed(0)+"s":"—";
+
+  // Update p99 from stats
+  if (m.stats && m.stats.length) {
+    const p99s = m.stats.map(s=>s.p99).filter(Boolean);
+    if (p99s.length) {
+      const maxP99 = Math.max(...p99s);
+      document.getElementById("mv-p99").textContent = maxP99.toFixed(0)+"ms";
+    }
+  }
+
+  // color coding
+  const mv = document.getElementById("mv-avg");
+  mv.className = "mv " + rtClass(avg);
+  const mfr = document.getElementById("mv-frate");
+  mfr.className = "mv " + fpClass(parseFloat(frate));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ENDPOINTS TABLE
+// ═══════════════════════════════════════════════════════════════
+function updateTable(stats) {
+  if (!stats.length) return;
+  document.getElementById("epEmpty").style.display="none";
+  document.getElementById("tblWrap").style.display="block";
+  document.getElementById("tblBody").innerHTML = stats.map(s => {
+    const fp = s.failure_rate.toFixed(1);
+    return `<tr>
+      <td><span class="mb ${s.method}">${s.method}</span></td>
+      <td>${s.name}</td>
+      <td>${fmtN(s.num_requests)}</td>
+      <td>${fmtN(s.num_failures)}</td>
+      <td><span class="fp ${fpClass(s.failure_rate)}">${fp}%</span></td>
+      <td>${s.avg_response_time.toFixed(0)}</td>
+      <td>${s.p50.toFixed(0)}</td>
+      <td>${s.p95.toFixed(0)}</td>
+      <td>${s.p99.toFixed(0)}</td>
+      <td>${s.rps.toFixed(2)}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ERRORS
+// ═══════════════════════════════════════════════════════════════
+function updateErrors(errors) {
+  const empty = document.getElementById("errEmpty");
+  const list  = document.getElementById("errList");
+  if (!errors.length) { empty.style.display="flex"; list.innerHTML=""; return; }
+  empty.style.display="none";
+  list.innerHTML = errors.map(e=>`
+    <div class="err-item">
+      <div class="err-name">${e["Error"]||e.error||JSON.stringify(e)}</div>
+      <div class="err-meta">Count: ${e["Occurrences"]||"?"} &nbsp;|&nbsp; Method: ${e["Method"]||"?"} &nbsp;|&nbsp; Path: ${e["Name"]||"?"}</div>
+    </div>`).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SCRIPT
+// ═══════════════════════════════════════════════════════════════
+document.getElementById("previewBtn").addEventListener("click", async () => {
+  if (!S.endpoints.length) { toast("Add at least one endpoint","err"); return; }
+  const r = await fetch("/api/script/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(buildConfig())});
+  const d = await r.json();
+  showScript(d.script);
+  switchTab("script");
+  toast("Script generated!","ok");
+});
+
+async function fetchScript() {
+  const r = await fetch("/api/test/script");
+  if (!r.ok) return;
+  const d = await r.json();
+  showScript(d.script);
+}
+
+function showScript(script) {
+  document.getElementById("scriptEmpty").style.display="none";
+  const block = document.getElementById("scriptBlock");
+  block.style.display="block";
+  const esc = script.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  block.innerHTML = esc
+    .replace(/(#[^\n]*)/g,'<span class="cc">$1</span>')
+    .replace(/\b(from|import|class|def|return|with|if|as|self|await|async)\b/g,'<span class="ck">$1</span>')
+    .replace(/(@\w+)/g,'<span class="cd">$1</span>')
+    .replace(/"([^"]+)"/g,'<span class="cs">"$1"</span>');
+  window._scriptText = script;
+}
+
+document.getElementById("copyScriptBtn").addEventListener("click", () => {
+  if (!window._scriptText) { toast("No script yet","err"); return; }
+  navigator.clipboard.writeText(window._scriptText).then(()=>toast("Copied!","ok"));
+});
+
+document.getElementById("dlScriptBtn").addEventListener("click", () => {
+  if (!window._scriptText) { toast("No script yet","err"); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([window._scriptText],{type:"text/plain"}));
+  a.download = "locustfile.py"; a.click();
+});
+
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".tpane").forEach(p => p.classList.remove("active"));
+  document.querySelector(`[data-tab="${name}"]`).classList.add("active");
+  document.getElementById(`tab-${name}`).classList.add("active");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════════════════════════════
+async function loadHistory() {
+  const r = await fetch("/api/history");
+  const d = await r.json();
+  const runs = d.runs || [];
+  const list = document.getElementById("histList");
+  if (!runs.length) {
+    list.innerHTML = '<div class="empty"><p>No runs saved yet.</p></div>';
+    return;
+  }
+  list.innerHTML = runs.map(run => `
+    <div class="hist-item" onclick="showRun('${run.run_id}')">
+      <div>
+        <div class="hi-url">${run.base_url}</div>
+        <div class="hi-meta">
+          <span>${fmtDate(run.ts)}</span>
+          <span>${run.users} users · ${run.duration}s</span>
+          <span>${fmtN(run.total_requests)} reqs</span>
+        </div>
+      </div>
+      <div class="hi-stats">
+        <div class="hi-rps">${run.rps}</div>
+        <div class="hi-label">RPS</div>
+        <button class="btn btn-d btn-sm hi-del" onclick="event.stopPropagation();deleteRun('${run.run_id}')" style="margin-top:.3rem">✕</button>
+      </div>
+    </div>`).join("");
+}
+
+async function showRun(runId) {
+  const r = await fetch(`/api/history/${runId}`);
+  if (!r.ok) return;
+  const run = await r.json();
+  const m = run.metrics || {};
+  const cfg = run.config || {};
+
+  document.getElementById("hdtlTitle").textContent = run.label || run.run_id;
+  document.getElementById("hdtlBody").innerHTML = `
+    <div class="mcard-grid" style="margin-bottom:1rem">
+      <div class="mcard"><div class="ml">RPS</div><div class="mv">${m.rps||0}</div></div>
+      <div class="mcard"><div class="ml">Avg RT</div><div class="mv">${m.avg_response_time||0}ms</div></div>
+      <div class="mcard"><div class="ml">p95 RT</div><div class="mv">${m.p95_response_time||0}ms</div></div>
+      <div class="mcard"><div class="ml">Total Reqs</div><div class="mv">${fmtN(m.total_requests)}</div></div>
+      <div class="mcard"><div class="ml">Failures</div><div class="mv">${fmtN(m.total_failures)}</div></div>
+      <div class="mcard"><div class="ml">Users</div><div class="mv">${cfg.users||0}</div></div>
+    </div>
+    ${m.stats&&m.stats.length ? `
+    <div class="tbl-wrap" style="margin-bottom:1rem">
+      <table class="stbl"><thead><tr><th>Method</th><th>Endpoint</th><th>Reqs</th><th>Fails</th><th>Avg ms</th><th>p95</th><th>RPS</th></tr></thead>
+      <tbody>${m.stats.map(s=>`<tr>
+        <td><span class="mb ${s.method}">${s.method}</span></td>
+        <td>${s.name}</td><td>${fmtN(s.num_requests)}</td><td>${fmtN(s.num_failures)}</td>
+        <td>${(s.avg_response_time||0).toFixed(0)}</td><td>${(s.p95||0).toFixed(0)}</td><td>${(s.rps||0).toFixed(2)}</td>
+      </tr>`).join("")}</tbody></table>
+    </div>` : ""}
+    ${run.script ? `<div class="script-bar"><span style="font-size:.75rem;color:var(--muted)">Script from this run</span>
+      <button class="btn btn-s btn-sm" onclick="navigator.clipboard.writeText(${JSON.stringify(run.script)}).then(()=>toast('Copied!','ok'))">Copy</button></div>
+      <pre class="code-block" style="max-height:30vh">${run.script.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</pre>` : ""}
+  `;
+  document.getElementById("hdtl").classList.add("open");
+}
+
+async function deleteRun(runId) {
+  await fetch(`/api/history/${runId}`,{method:"DELETE"});
+  toast("Run deleted","ok"); loadHistory();
+}
+
+document.getElementById("hdtlClose").addEventListener("click", () => {
+  document.getElementById("hdtl").classList.remove("open");
+});
+document.getElementById("hdtl").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("hdtl")) document.getElementById("hdtl").classList.remove("open");
+});
+
+document.getElementById("clearHistBtn").addEventListener("click", async () => {
+  if (!confirm("Clear all test history?")) return;
+  await fetch("/api/history",{method:"DELETE"});
+  toast("History cleared","ok"); loadHistory();
+});
+
+document.getElementById("historyBtn").addEventListener("click", () => {
+  document.querySelectorAll(".stab").forEach(t => t.classList.remove("active"));
+  document.querySelector('[data-stab="history"]').classList.add("active");
+  document.getElementById("stab-config").style.display="none";
+  document.getElementById("stab-history").style.display="";
+  loadHistory();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+S.endpoints = DEFAULTS.map(e=>({...e}));
+renderEps();
+</script>
+</body>
+</html>
