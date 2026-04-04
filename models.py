@@ -20,6 +20,11 @@ class ApiEndpoint(BaseModel):
     weight: int = Field(default=1, ge=1, le=100, description="Relative frequency weight")
 
 
+class HistoryDestination(str, Enum):
+    local = "local"
+    db = "db"
+
+
 class TestConfig(BaseModel):
     base_url: str = Field(..., description="Base URL e.g. https://api.example.com")
     endpoints: List[ApiEndpoint] = Field(..., min_length=1)
@@ -28,6 +33,10 @@ class TestConfig(BaseModel):
     duration: int = Field(default=30, ge=5, le=600, description="Test duration in seconds")
     think_time_min: float = Field(default=0.5, ge=0, description="Min wait between requests (s)")
     think_time_max: float = Field(default=2.0, ge=0, description="Max wait between requests (s)")
+    history_target: HistoryDestination = Field(
+        default=HistoryDestination.local,
+        description="Where to save the completed run"
+    )
 
 
 class TestStatus(str, Enum):

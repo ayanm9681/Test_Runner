@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from models import TestConfig, TestMetrics, TestStatus
 from utils.runner import LocustRunner
 from utils.script_generator import generate_locust_script
-from utils.mongo import collection as mongo_collection, connect_mongo, close_mongo
+from utils.mongo import close_mongo
 from utils import history as hist
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -25,8 +25,6 @@ runner = LocustRunner()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("LocustForge API starting up")
-    connect_mongo()
-    logger.info(f"Connected to MongoDB collection {mongo_collection.full_name}")
     yield
     if runner.is_running():
         await runner.stop()
@@ -66,6 +64,7 @@ async def start_test(config: TestConfig):
     if runner.is_running():
         raise HTTPException(status_code=409, detail="A test is already running. Stop it first.")
     try:
+        runner.history_target = config.history_target
         await runner.start(config)
         return {"message": "Test started", "status": TestStatus.RUNNING}
     except Exception as e:
@@ -78,7 +77,7 @@ async def stop_test():
     if not runner.is_running():
         raise HTTPException(status_code=409, detail="No test is currently running.")
     await runner.stop()
-    _auto_save()
+    _auto_save(runner.history_target if hasattr(runner, "history_target") else "local")
     return {"message": "Test stopped", "status": TestStatus.COMPLETED}
 
 
@@ -118,29 +117,41 @@ async def reset_test():
 # ── History ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/history")
-async def list_history():
-    return {"runs": hist.list_runs()}
+async def list_history(source: str = "local"):
+    try:
+        return {"runs": hist.list_runs(source)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/history/{run_id}")
-async def get_history_run(run_id: str):
-    run = hist.get_run(run_id)
+async def get_history_run(run_id: str, source: str = "local"):
+    try:
+        run = hist.get_run(run_id, source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
 
 
 @app.delete("/api/history/{run_id}")
-async def delete_history_run(run_id: str):
-    deleted = hist.delete_run(run_id)
+async def delete_history_run(run_id: str, source: str = "local"):
+    try:
+        deleted = hist.delete_run(run_id, source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not deleted:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"deleted": run_id}
 
 
 @app.delete("/api/history")
-async def clear_history():
-    n = hist.clear_all()
+async def clear_history(source: str = "local"):
+    try:
+        n = hist.clear_all(source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"cleared": n}
 
 
@@ -160,7 +171,7 @@ async def metrics_websocket(ws: WebSocket):
 
             # Auto-save once when test finishes
             if was_running and metrics.status in (TestStatus.COMPLETED, TestStatus.FAILED):
-                _auto_save()
+                _auto_save(runner.history_target if hasattr(runner, "history_target") else "local")
 
             was_running = runner.is_running()
             await asyncio.sleep(2)
@@ -170,7 +181,7 @@ async def metrics_websocket(ws: WebSocket):
         logger.warning(f"WebSocket error: {e}")
 
 
-def _auto_save():
+def _auto_save(source: str = "local"):
     """Save the last completed run to history."""
     try:
         if runner._config is None:
@@ -181,8 +192,9 @@ def _auto_save():
             metrics=metrics.model_dump(),
             timeseries=runner.timeseries,
             script=runner.get_script(),
+            source=source,
         )
-        logger.info(f"Auto-saved run {run_id}")
+        logger.info(f"Auto-saved run {run_id} to {source} history")
     except Exception as e:
         logger.warning(f"Auto-save failed: {e}")
 

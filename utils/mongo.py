@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -17,18 +18,26 @@ def _env(name: str, default: str | None = None) -> str | None:
 
 
 MONGO_URI = _env("MONGO_CONNECTION") or _env("MONGO_URI")
-if not MONGO_URI:
-    raise RuntimeError("Missing MONGO_CONNECTION or MONGO_URI in .env")
-
 DB_NAME = _env("DB_NAME") or "TestRunner"
 COLLECTION_NAME = _env("TEST_COLLECTION") or "test_run_results"
 
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-db = client[DB_NAME]
-collection: Collection = db[COLLECTION_NAME]
+client: Optional[MongoClient]
+if MONGO_URI:
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+else:
+    client = None
+
+if client:
+    db = client[DB_NAME]
+    collection: Optional[Collection] = db[COLLECTION_NAME]
+else:
+    db = None
+    collection = None
 
 
 def connect_mongo() -> None:
+    if client is None or collection is None:
+        raise RuntimeError("MongoDB connection is not configured. Set MONGO_CONNECTION in .env.")
     try:
         client.admin.command("ping")
     except Exception as exc:
@@ -36,4 +45,5 @@ def connect_mongo() -> None:
 
 
 def close_mongo() -> None:
-    client.close()
+    if client is not None:
+        client.close()

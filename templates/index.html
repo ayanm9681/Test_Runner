@@ -209,6 +209,13 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
         </div>
       </div>
       <div class="fsec">
+        <div class="fsec-title">History</div>
+        <div class="fg"><label>Save results</label><select id="historyTarget">
+          <option value="local">Local JSON</option>
+          <option value="db">Database</option>
+        </select></div>
+      </div>
+      <div class="fsec">
         <div class="fsec-title">Endpoints</div>
         <div class="ep-list" id="epList"></div>
         <button class="btn btn-s btn-sm" id="addEpBtn" style="width:100%;margin-top:.5rem">+ Add Endpoint</button>
@@ -219,7 +226,13 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
     <div class="sidebar-body" id="stab-history" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
         <span style="font-size:.72rem;color:var(--muted);font-weight:600">PAST RUNS</span>
-        <button class="btn btn-d btn-sm" id="clearHistBtn">Clear All</button>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <select id="historySource" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.4rem .65rem;font-family:var(--mono);font-size:.75rem">
+            <option value="local">Local JSON</option>
+            <option value="db">Database</option>
+          </select>
+          <button class="btn btn-d btn-sm" id="clearHistBtn">Clear All</button>
+        </div>
       </div>
       <div class="hist-list" id="histList">
         <div class="empty"><p>No runs saved yet.</p></div>
@@ -470,8 +483,14 @@ function buildConfig() {
     duration: +document.getElementById("duration").value,
     think_time_min: +document.getElementById("thinkMin").value,
     think_time_max: +document.getElementById("thinkMax").value,
+    history_target: document.getElementById("historyTarget").value,
     endpoints: S.endpoints.map(e=>({name:e.name,method:e.method,path:e.path,weight:e.weight,headers:e.headers,body:e.body})),
   };
+}
+
+function historySource() {
+  const el = document.getElementById("historySource");
+  return el ? el.value : "local";
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -486,6 +505,9 @@ document.getElementById("startBtn").addEventListener("click", async () => {
     const r = await fetch("/api/test/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)});
     if (!r.ok) { const d=await r.json(); throw new Error(d.detail||"Failed"); }
     S.running=true; S.duration=cfg.duration; S.startTime=Date.now();
+    S.historyTarget = cfg.history_target;
+    const sourceSelect = document.getElementById("historySource");
+    if (sourceSelect) sourceSelect.value = cfg.history_target;
     document.getElementById("stopBtn").disabled=false;
     btn.innerHTML='<span class="spin"></span> Running…';
     setStatus("running"); toast("Test started!","ok");
@@ -727,7 +749,8 @@ function switchTab(name) {
 // HISTORY
 // ═══════════════════════════════════════════════════════════════
 async function loadHistory() {
-  const r = await fetch("/api/history");
+  const source = historySource();
+  const r = await fetch(`/api/history?source=${encodeURIComponent(source)}`);
   const d = await r.json();
   const runs = d.runs || [];
   const list = document.getElementById("histList");
@@ -754,7 +777,8 @@ async function loadHistory() {
 }
 
 async function showRun(runId) {
-  const r = await fetch(`/api/history/${runId}`);
+  const source = historySource();
+  const r = await fetch(`/api/history/${runId}?source=${encodeURIComponent(source)}`);
   if (!r.ok) return;
   const run = await r.json();
   const m = run.metrics || {};
@@ -769,6 +793,7 @@ async function showRun(runId) {
       <div class="mcard"><div class="ml">Total Reqs</div><div class="mv">${fmtN(m.total_requests)}</div></div>
       <div class="mcard"><div class="ml">Failures</div><div class="mv">${fmtN(m.total_failures)}</div></div>
       <div class="mcard"><div class="ml">Users</div><div class="mv">${cfg.users||0}</div></div>
+      <div class="mcard"><div class="ml">Saved To</div><div class="mv">${run.storage === 'db' ? 'Database' : 'Local JSON'}</div></div>
     </div>
     ${m.stats&&m.stats.length ? `
     <div class="tbl-wrap" style="margin-bottom:1rem">
@@ -787,9 +812,11 @@ async function showRun(runId) {
 }
 
 async function deleteRun(runId) {
-  await fetch(`/api/history/${runId}`,{method:"DELETE"});
+  await fetch(`/api/history/${runId}?source=${encodeURIComponent(historySource())}`,{method:"DELETE"});
   toast("Run deleted","ok"); loadHistory();
 }
+
+document.getElementById("historySource").addEventListener("change", loadHistory);
 
 document.getElementById("hdtlClose").addEventListener("click", () => {
   document.getElementById("hdtl").classList.remove("open");
@@ -800,7 +827,7 @@ document.getElementById("hdtl").addEventListener("click", (e) => {
 
 document.getElementById("clearHistBtn").addEventListener("click", async () => {
   if (!confirm("Clear all test history?")) return;
-  await fetch("/api/history",{method:"DELETE"});
+  await fetch(`/api/history?source=${encodeURIComponent(historySource())}`,{method:"DELETE"});
   toast("History cleared","ok"); loadHistory();
 });
 

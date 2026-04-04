@@ -29,6 +29,7 @@ class LocustRunner:
         self._stats_file: Optional[str] = None
         self.timeseries: list[dict] = []
         self._ts_task: Optional[asyncio.Task] = None
+        self.history_target: str = "local"
 
     @property
     def status(self) -> TestStatus:
