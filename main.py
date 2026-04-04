@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -16,6 +17,7 @@ from utils import history as hist
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+BASE_DIR = Path(__file__).resolve().parent
 runner = LocustRunner()
 
 
@@ -47,7 +49,8 @@ app.add_middleware(
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    with open("templates/index.html") as f:
+    path = BASE_DIR / "templates" / "index.html"
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
