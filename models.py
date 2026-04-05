@@ -11,6 +11,20 @@ class HttpMethod(str, Enum):
     DELETE = "DELETE"
 
 
+class ExtractRule(BaseModel):
+    var: str = Field(..., description="Variable name to store extracted value")
+    from_: str = Field(default="json", alias="from", description="Source: 'json' or 'header'")
+    path: str = Field(..., description="JSONPath like $.data.token or header name")
+
+    model_config = {"populate_by_name": True}
+
+
+class InjectRule(BaseModel):
+    var: str = Field(..., description="Variable name to inject")
+    into: str = Field(..., description="Where to inject: header | body | path | query")
+    key: Optional[str] = Field(default=None, description="Target key name")
+
+
 class ApiEndpoint(BaseModel):
     name: str = Field(..., description="Human-readable name for this endpoint")
     method: HttpMethod = Field(default=HttpMethod.GET)
@@ -18,6 +32,8 @@ class ApiEndpoint(BaseModel):
     headers: Optional[Dict[str, str]] = Field(default=None)
     body: Optional[Dict[str, Any]] = Field(default=None)
     weight: int = Field(default=1, ge=1, le=100, description="Relative frequency weight")
+    extract: Optional[List[ExtractRule]] = Field(default=None, description="Values to extract from response")
+    inject: Optional[List[InjectRule]] = Field(default=None, description="Values to inject into this request")
 
 
 class HistoryDestination(str, Enum):

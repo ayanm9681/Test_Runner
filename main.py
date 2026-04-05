@@ -201,4 +201,4 @@ def _auto_save(source: str = "local"):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=5005, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=6002, reload=True)
