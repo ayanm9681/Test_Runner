@@ -4,6 +4,27 @@ A FastAPI-powered web UI for building and running [Locust](https://locust.io) lo
 
 ![LocustForge demo](Locust_Forge.gif)
 
+---
+
+## Architectural Trade-offs & Production Scaling
+
+> This is a **lite showcase build** — intentionally simple, zero-infrastructure, single-file UI. The trade-offs below are known and accepted for that purpose. Here's what they are and how you'd fix them at scale.
+
+| # | Limitation in this build | Root cause | Production remedy |
+|---|--------------------------|------------|-------------------|
+| 1 | **One test at a time, globally** | `LocustRunner` is a module-level singleton; a second `POST /api/test/start` is rejected with 409 | Replace the singleton with a job queue (Celery + Redis / RQ). Each submitted test becomes a task; results are keyed by job ID, enabling concurrent multi-tenant runs |
+| 2 | **In-memory state lost on restart** | Timeseries, current metrics, and runner status live only in the Python process | Stream intermediate snapshots to Redis or MongoDB during the run so a restarted server can reconstruct live state |
+| 3 | **WebSocket breaks behind a load balancer** | The `/ws/metrics` handler polls the in-process runner object; with multiple uvicorn workers or replicas, a client may connect to a worker that has no runner state | Add sticky sessions at the LB layer, or push metric events through a Redis pub/sub channel that every worker subscribes to |
+| 4 | **Locust is capped to one machine** | Locust subprocess runs in headless single-process mode on the API host; max practical users is a few thousand on a small VM | Use Locust's native **master/worker** distributed mode — spin up worker pods (e.g. K8s Jobs) that the master coordinates; the API only drives the master |
+| 5 | **Flat-file storage has no concurrency safety** | `locust_history.json` and `test_configs.json` are read-parse-write with no locking; two simultaneous saves can corrupt the file | Already partially solved by the MongoDB path. For local-only deployments, replace with SQLite (via `aiosqlite`) which provides proper file locking |
+| 6 | **No authentication or authorization** | All API endpoints and the UI are open with `allow_origins=["*"]` CORS | Add an auth layer (OAuth2 / JWT via `fastapi-users`, or a simple API-key header check). Tighten CORS to known origins |
+| 7 | **Metrics polling latency is ~3 s** | `_collect_timeseries` sleeps 3 s between CSV reads; Locust writes stats periodically to CSV | Integrate with Locust's internal `stats` object via its REST API (`/stats/requests`) at sub-second intervals, or use `locust-plugins` event hooks for push-based streaming |
+| 8 | **Temp files can accumulate on crashes** | If the API process is killed mid-test, `reset()` never runs so `/tmp/locust_*` directories are orphaned | Add a startup hook that scans for and removes stale temp dirs older than N hours, or configure Docker with `tmpfs` mounts that are wiped on container restart |
+| 9 | **No rate limiting** | Any client can `POST /api/test/start` in a loop | Add `slowapi` (or an Nginx/Kong gateway rule) to rate-limit test-start calls per IP / API key |
+| 10 | **Script execution is fully trusted** | Generated Locust scripts are written to disk and executed as a subprocess with the same OS user as the API | Run the subprocess inside a container sandbox (e.g. `gVisor`, Docker-in-Docker, or an ephemeral K8s pod) with no network access beyond the target host |
+
+---
+
 ## Features
 
 - **Visual endpoint builder** — add APIs with method, path, headers, JSON body, and weight
