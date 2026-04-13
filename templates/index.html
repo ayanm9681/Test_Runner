@@ -168,6 +168,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
   <aside class="sidebar">
     <div class="sidebar-tabs">
       <button class="stab active" data-stab="config">Config</button>
+      <button class="stab" data-stab="saved">Saved</button>
       <button class="stab" data-stab="history">History</button>
     </div>
     <div class="sbody" id="stab-config">
@@ -182,6 +183,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
       <div class="fsec"><div class="fsec-title">Endpoints</div>
         <div class="ep-list" id="epList"></div>
         <button class="btn btn-s btn-sm" id="addEpBtn" style="width:100%;margin-top:.55rem">+ Add Endpoint</button>
+        <button class="btn btn-pu btn-sm" id="saveConfigBtn" style="width:100%;margin-top:.4rem"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save Config</button>
       </div>
     </div>
     <div class="sbody" id="stab-history" style="display:none">
@@ -193,6 +195,16 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
         </div>
       </div>
       <div class="hist-list" id="histList"><div class="empty"><p>No runs saved yet.</p></div></div>
+    </div>
+    <div class="sbody" id="stab-saved" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+        <span style="font-size:.66rem;color:var(--muted);font-weight:700;letter-spacing:.07em;text-transform:uppercase">Saved Configs</span>
+        <div style="display:flex;align-items:center;gap:.4rem">
+          <select id="configSource" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.34rem .58rem;font-family:var(--mono);font-size:.72rem"><option value="local">Local JSON</option><option value="db">Database</option></select>
+          <button class="btn btn-d btn-sm" id="clearConfigsBtn">Clear</button>
+        </div>
+      </div>
+      <div class="hist-list" id="configList"><div class="empty"><p>No saved configs yet.</p></div></div>
     </div>
     <div class="act-bar">
       <button class="btn btn-p" id="startBtn" style="flex:1"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test</button>
@@ -319,6 +331,26 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
     <div id="hdtlBody"></div>
   </div>
 </div>
+<!-- Save Config Modal -->
+<div class="modal-overlay" id="saveConfigModal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-hdr">
+      <div class="modal-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Save Configuration
+      </div>
+      <button class="btn btn-s btn-sm" id="scCloseBtn">&#x2715;</button>
+    </div>
+    <div style="padding:1.4rem;display:flex;flex-direction:column;gap:.75rem">
+      <div class="fg"><label>Config Name</label><input id="scName" placeholder="My API test setup — give it a memorable name"/></div>
+      <div class="fg"><label>Save To</label><select id="scTarget"><option value="local">Local JSON (test_configs.json)</option><option value="db">Database (test_config collection)</option></select></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-s btn-sm" id="scCancelBtn">Cancel</button>
+      <button class="btn btn-p btn-sm" id="scConfirmBtn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 
 <script>
@@ -345,8 +377,10 @@ function getAvailVars(beforeIdx){
 document.querySelectorAll(".stab").forEach(t=>{t.addEventListener("click",()=>{
   document.querySelectorAll(".stab").forEach(x=>x.classList.remove("active"));t.classList.add("active");
   $("stab-config").style.display=t.dataset.stab==="config"?"":"none";
+  $("stab-saved").style.display=t.dataset.stab==="saved"?"":"none";
   $("stab-history").style.display=t.dataset.stab==="history"?"":"none";
   if(t.dataset.stab==="history")loadHistory();
+  if(t.dataset.stab==="saved")loadConfigs();
 })});
 document.querySelectorAll(".tab").forEach(t=>{t.addEventListener("click",()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
@@ -610,6 +644,100 @@ $("hdtl").addEventListener("click",e=>{if(e.target===$("hdtl"))$("hdtl").classLi
 $("clearHistBtn").addEventListener("click",async()=>{const src=($("historySource")||{}).value||"local";if(!confirm("Clear all test history?"))return;await fetch(`/api/history?source=${src}`,{method:"DELETE"});toast("History cleared","ok");loadHistory()});
 $("historyBtn").addEventListener("click",()=>{document.querySelectorAll(".stab").forEach(x=>x.classList.remove("active"));document.querySelector('[data-stab="history"]').classList.add("active");$("stab-config").style.display="none";$("stab-history").style.display="";loadHistory()});
 $("historySource")&&$("historySource").addEventListener("change",loadHistory);
+
+// ── Saved Configs ──────────────────────────────────────────────────────────────
+
+// Save Config modal
+$("saveConfigBtn").addEventListener("click",()=>{
+  if(!S.endpoints.length){toast("Add at least one endpoint first","err");return}
+  $("scName").value="";
+  $("saveConfigModal").classList.add("open");
+  setTimeout(()=>$("scName").focus(),60);
+});
+function closeSCModal(){$("saveConfigModal").classList.remove("open")}
+$("scCloseBtn").addEventListener("click",closeSCModal);
+$("scCancelBtn").addEventListener("click",closeSCModal);
+$("saveConfigModal").addEventListener("click",e=>{if(e.target===$("saveConfigModal"))closeSCModal()});
+$("scConfirmBtn").addEventListener("click",async()=>{
+  const name=$("scName").value.trim();
+  if(!name){toast("Enter a config name","err");$("scName").focus();return}
+  const src=$("scTarget").value;
+  const btn=$("scConfirmBtn");btn.disabled=true;
+  try{
+    const r=await fetch(`/api/configs?source=${src}`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name,config:buildConfig()})
+    });
+    if(!r.ok){const d=await r.json();throw new Error(d.detail||"Save failed")}
+    closeSCModal();
+    toast(`"${name}" saved!`,"ok");
+  }catch(e){toast(e.message,"err")}
+  finally{btn.disabled=false}
+});
+$("scName").addEventListener("keydown",e=>{if(e.key==="Enter")$("scConfirmBtn").click()});
+
+// Saved configs list
+async function loadConfigs(){
+  const src=($("configSource")||{}).value||"local";
+  let d;
+  try{const r=await fetch(`/api/configs?source=${src}`);d=await r.json()}
+  catch{$("configList").innerHTML='<div class="empty"><p>Failed to load configs.</p></div>';return}
+  const cfgs=d.configs||[];
+  const list=$("configList");
+  if(!cfgs.length){list.innerHTML='<div class="empty"><p>No saved configs yet.<br>Configure endpoints then click <strong>Save Config</strong>.</p></div>';return}
+  list.innerHTML=cfgs.map(c=>`
+    <div class="hist-item" onclick="applyConfig('${c.config_id}','${src}')">
+      <div style="min-width:0">
+        <div class="hi-url">${c.name}</div>
+        <div class="hi-meta">
+          <span>${fmtDate(c.ts)}</span>
+          <span>${c.base_url||"?"}</span>
+          <span>${c.endpoint_count} endpoint${c.endpoint_count!==1?"s":""}</span>
+          <span>${c.users||0} users &middot; ${c.duration||0}s</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem;flex-shrink:0">
+        <button class="btn btn-p btn-sm" onclick="event.stopPropagation();applyConfig('${c.config_id}','${src}')">&#8617; Load</button>
+        <button class="btn btn-d btn-sm" onclick="event.stopPropagation();deleteConfig('${c.config_id}','${src}')">&#x2715;</button>
+      </div>
+    </div>`).join("");
+}
+
+async function applyConfig(id,src){
+  let d;
+  try{const r=await fetch(`/api/configs/${id}?source=${src}`);if(!r.ok)throw new Error();d=await r.json()}
+  catch{toast("Config not found","err");return}
+  const cfg=d.config||{};
+  if(cfg.base_url!==undefined)$("baseUrl").value=cfg.base_url;
+  if(cfg.users!==undefined)$("users").value=cfg.users;
+  if(cfg.spawn_rate!==undefined)$("spawnRate").value=cfg.spawn_rate;
+  if(cfg.duration!==undefined)$("duration").value=cfg.duration;
+  if(cfg.think_time_min!==undefined)$("thinkMin").value=cfg.think_time_min;
+  if(cfg.think_time_max!==undefined)$("thinkMax").value=cfg.think_time_max;
+  if(cfg.history_target)$("historyTarget").value=cfg.history_target;
+  if(Array.isArray(cfg.endpoints)&&cfg.endpoints.length){
+    S.endpoints=cfg.endpoints.map(e=>({...e,extract:e.extract||[],inject:e.inject||[]}));
+    renderEps();
+  }
+  // Switch to Config tab
+  document.querySelectorAll(".stab").forEach(x=>x.classList.remove("active"));
+  document.querySelector('[data-stab="config"]').classList.add("active");
+  $("stab-config").style.display="";$("stab-saved").style.display="none";$("stab-history").style.display="none";
+  toast(`"${d.name}" loaded!`,"ok");
+}
+
+async function deleteConfig(id,src){
+  await fetch(`/api/configs/${id}?source=${src}`,{method:"DELETE"});
+  toast("Config deleted","ok");loadConfigs();
+}
+
+$("clearConfigsBtn").addEventListener("click",async()=>{
+  const src=($("configSource")||{}).value||"local";
+  if(!confirm("Delete all saved configs?"))return;
+  await fetch(`/api/configs?source=${src}`,{method:"DELETE"});
+  toast("Configs cleared","ok");loadConfigs();
+});
+$("configSource")&&$("configSource").addEventListener("change",loadConfigs);
 
 S.endpoints=DEFAULTS.map(e=>({...e,extract:[],inject:[]}));renderEps();
 </script>

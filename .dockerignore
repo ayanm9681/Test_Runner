@@ -3,31 +3,20 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.egg-info/
-.eggs/
-dist/
-build/
 
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Secrets / local config (pass via env vars or --env-file at runtime)
+# Environment / secrets — pass these as env vars at runtime
 .env
 
 # Git
 .git/
 .gitignore
 
-# Local test history (not baked into image)
+# Local data files (mounted as volumes in production instead)
 locust_history.json
+test_configs.json
 
 # IDE / OS
 .vscode/
 .idea/
 *.DS_Store
 Thumbs.db
-
-# Docs (optional — remove if you want them in the image)
-*.md

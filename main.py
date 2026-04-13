@@ -9,11 +9,12 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-from models import TestConfig, TestMetrics, TestStatus
+from models import TestConfig, TestMetrics, TestStatus, SaveConfigRequest
 from utils.runner import LocustRunner
 from utils.script_generator import generate_locust_script
 from utils.mongo import close_mongo
 from utils import history as hist
+from utils import config_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -150,6 +151,60 @@ async def delete_history_run(run_id: str, source: str = "local"):
 async def clear_history(source: str = "local"):
     try:
         n = hist.clear_all(source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"cleared": n}
+
+
+# ── Saved configs ─────────────────────────────────────────────────────────────
+
+@app.post("/api/configs")
+async def save_config(req: SaveConfigRequest, source: str = "local"):
+    try:
+        config_id = config_store.save_config(
+            name=req.name,
+            config=req.config.model_dump(),
+            source=source,
+        )
+        return {"config_id": config_id, "name": req.name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/configs")
+async def list_configs(source: str = "local"):
+    try:
+        return {"configs": config_store.list_configs(source)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/configs/{config_id}")
+async def get_config(config_id: str, source: str = "local"):
+    try:
+        cfg = config_store.get_config(config_id, source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Config not found")
+    return cfg
+
+
+@app.delete("/api/configs/{config_id}")
+async def delete_config(config_id: str, source: str = "local"):
+    try:
+        deleted = config_store.delete_config(config_id, source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Config not found")
+    return {"deleted": config_id}
+
+
+@app.delete("/api/configs")
+async def clear_configs(source: str = "local"):
+    try:
+        n = config_store.clear_all(source)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"cleared": n}

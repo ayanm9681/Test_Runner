@@ -55,6 +55,11 @@ class TestConfig(BaseModel):
     )
 
 
+class SaveConfigRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Human-readable name for this saved config")
+    config: TestConfig
+
+
 class TestStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"

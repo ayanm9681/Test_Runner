@@ -2,17 +2,21 @@
 
 A FastAPI-powered web UI for building and running [Locust](https://locust.io) load tests — no CLI required.
 
+![LocustForge demo](Locust_Forge.gif)
+
 ## Features
 
 - **Visual endpoint builder** — add APIs with method, path, headers, JSON body, and weight
 - **Request dependency chaining** — extract values from responses (JSON / headers) and inject them into later requests (header / body / path / query)
+- **Saved configurations** — name and save endpoint setups to local JSON or MongoDB (`test_config` collection), then reload them instantly from the **Saved** sidebar tab
 - **Instant script generation** — preview or download the Locust `.py` file
-- **Live metrics via WebSocket** — RPS, avg/p95/p99 latency, failure rate, user count
-- **Live charts** — Chart.js time-series for RPS, avg + p95 response time, failures, and users
+- **Live metrics via WebSocket** — RPS, avg/p95/p99 latency, failure rate, user count, real-time elapsed timer
+- **Live charts** — Chart.js time-series for RPS, Avg + p95 response time, failures, and users
 - **Per-endpoint stats table** — request count, failures, min/avg/p50/p95/p99 latency, RPS
 - **Test history** — every completed run is auto-saved (exactly once) with full metrics + script
-- **Dual storage** — persist history to local JSON or MongoDB
+- **Dual storage** — persist history and saved configs to local JSON or MongoDB
 - **History browser** — review and delete past runs from the sidebar
+- **Docker support** — single-command container deployment
 
 ## Project Structure
 
@@ -30,6 +34,7 @@ Test_Runner/
     ├── script_generator.py   # Builds a valid Locust script from TestConfig
     ├── runner.py             # Manages the Locust subprocess, CSV parsing, timeseries
     ├── history.py            # Run persistence (local JSON or MongoDB)
+    ├── config_store.py       # Saved endpoint config persistence (local JSON or MongoDB)
     └── mongo.py              # MongoDB client initialisation
 ```
 
@@ -92,6 +97,18 @@ When `MONGO_CONNECTION` is not set the app runs fully without MongoDB; history i
 | WS     | `/ws/metrics`           | Live metrics stream (every 2 s)      |
 
 All history endpoints accept `?source=local` (default) or `?source=db`.
+
+### Saved configs
+
+| Method | Path                       | Description                          |
+|--------|----------------------------|--------------------------------------|
+| POST   | `/api/configs`             | Save a named config `{name, config}` |
+| GET    | `/api/configs`             | List saved configs (summary)         |
+| GET    | `/api/configs/{config_id}` | Full config by ID                    |
+| DELETE | `/api/configs/{config_id}` | Delete a specific config             |
+| DELETE | `/api/configs`             | Clear all saved configs              |
+
+All saved-config endpoints accept `?source=local` (default) or `?source=db`. When using `db`, configs are stored in the `test_config` MongoDB collection.
 
 ## TestConfig Schema
 
