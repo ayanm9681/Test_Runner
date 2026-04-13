@@ -98,9 +98,7 @@ def _render_task(ep: ApiEndpoint) -> str:
     if extract:
         lines.append("            else:")
         lines.append("                try:")
-        last_var = None
         for ext in extract:
-            last_var = ext.var
             src = ext.from_
             if src == "json":
                 py_expr = _jpath_to_py(ext.path)
@@ -108,8 +106,9 @@ def _render_task(ep: ApiEndpoint) -> str:
             elif src == "header":
                 lines.append(f'                    self.{ext.var} = resp.headers.get("{ext.path}")')
         lines.append("                except Exception:")
-        if last_var:
-            lines.append(f"                    self.{last_var} = None")
+        # Reset all extracted vars on failure, not just the last one
+        for ext in extract:
+            lines.append(f"                    self.{ext.var} = None")
 
     lines.append("")
     return "\n".join(lines)

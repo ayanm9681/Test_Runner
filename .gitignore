@@ -47,3 +47,5 @@ Thumbs.db
 
 # Project specific
 locust_history.json
+__pycache__/
+utils/__pycache__/

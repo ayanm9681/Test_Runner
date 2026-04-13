@@ -197,6 +197,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
     <div class="act-bar">
       <button class="btn btn-p" id="startBtn" style="flex:1"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test</button>
       <button class="btn btn-s btn-sm" id="previewBtn">Script</button>
+      <button class="btn btn-s btn-sm" id="resetBtn" style="display:none" title="Clear metrics and reset runner">&#8635; Reset</button>
       <button class="btn btn-d" id="stopBtn" disabled>&#9632; Stop</button>
     </div>
   </aside>
@@ -236,7 +237,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
       </div>
       <div class="tpane" id="tab-endpoints">
         <div id="epEmpty" class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p>No stats yet. Start a test to see per-endpoint data.</p></div>
-        <div class="tbl-wrap" id="tblWrap" style="display:none"><table class="stbl"><thead><tr><th>Method</th><th>Endpoint</th><th>Reqs</th><th>Fails</th><th>Fail%</th><th>Avg ms</th><th>p50</th><th>p95</th><th>p99</th><th>RPS</th></tr></thead><tbody id="tblBody"></tbody></table></div>
+        <div class="tbl-wrap" id="tblWrap" style="display:none"><table class="stbl"><thead><tr><th>Method</th><th>Endpoint</th><th>Reqs</th><th>Fails</th><th>Fail%</th><th>Min ms</th><th>Avg ms</th><th>p50</th><th>p95</th><th>p99</th><th>RPS</th></tr></thead><tbody id="tblBody"></tbody></table></div>
       </div>
       <div class="tpane" id="tab-errors">
         <div id="errEmpty" class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg><p>No errors recorded.</p></div>
@@ -321,7 +322,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 <div id="toast"></div>
 
 <script>
-const S={endpoints:[],editIdx:-1,running:false,ws:null,duration:30,startTime:null,progTimer:null,charts:{}};
+const S={endpoints:[],editIdx:-1,running:false,ws:null,duration:30,startTime:null,progTimer:null,elapsedTimer:null,charts:{}};
 const DEFAULTS=[
   {name:"List Posts",method:"GET",path:"/posts",weight:3,headers:null,body:null,extract:[],inject:[]},
   {name:"Get Post",method:"GET",path:"/posts/1",weight:2,headers:null,body:null,extract:[],inject:[]},
@@ -486,7 +487,7 @@ $("startBtn").addEventListener("click",async()=>{
     const r=await fetch("/api/test/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)});
     if(!r.ok){const d=await r.json();throw new Error(d.detail||"Failed")}
     S.running=true;S.duration=cfg.duration;S.startTime=Date.now();
-    $("stopBtn").disabled=false;btn.innerHTML='<span class="spin"></span> Running\u2026';
+    $("stopBtn").disabled=false;$("resetBtn").style.display="none";btn.innerHTML='<span class="spin"></span> Running\u2026';
     setStatus("running");toast("Test started!","ok");
     startProg();initCharts();connectWS();$("ovEmpty").style.display="none";$("chartsEmpty").style.display="none";
   }catch(e){
@@ -495,14 +496,59 @@ $("startBtn").addEventListener("click",async()=>{
   }
 });
 $("stopBtn").addEventListener("click",async()=>{await fetch("/api/test/stop",{method:"POST"});S.running=false;resetUI();toast("Stopped","ok");setStatus("completed")});
-function resetUI(){const btn=$("startBtn");btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test';btn.disabled=false;$("stopBtn").disabled=true;clearInterval(S.progTimer);$("progWrap").style.display="none";$("progBar").style.width="0%"}
-function startProg(){$("progWrap").style.display="block";S.progTimer=setInterval(()=>{const p=Math.min(((Date.now()-S.startTime)/1000/S.duration)*100,100);$("progBar").style.width=p+"%";if(p>=100)clearInterval(S.progTimer)},500)}
+function resetUI(){
+  const btn=$("startBtn");
+  btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test';
+  btn.disabled=false;$("stopBtn").disabled=true;
+  $("resetBtn").style.display="";
+  clearInterval(S.progTimer);clearInterval(S.elapsedTimer);
+  $("progWrap").style.display="none";$("progBar").style.width="0%";
+}
+function startProg(){
+  $("progWrap").style.display="block";
+  S.progTimer=setInterval(()=>{const p=Math.min(((Date.now()-S.startTime)/1000/S.duration)*100,100);$("progBar").style.width=p+"%";if(p>=100)clearInterval(S.progTimer)},500);
+  // Real-time elapsed counter — updates every second, independent of WS interval
+  S.elapsedTimer=setInterval(()=>{if(S.running&&S.startTime)$("mv-elapsed").textContent=Math.floor((Date.now()-S.startTime)/1000)+"s"},1000);
+}
+$("resetBtn").addEventListener("click",async()=>{
+  try{
+    await fetch("/api/test/reset",{method:"POST"});
+    $("resetBtn").style.display="none";
+    ["mv-rps","mv-avg","mv-p95","mv-p99","mv-total","mv-fail","mv-frate","mv-users","mv-elapsed"].forEach(id=>{$(id).textContent="\u2014";$(id).className="mv"});
+    $("ovEmpty").style.display="";$("epEmpty").style.display="flex";$("tblWrap").style.display="none";
+    $("errEmpty").style.display="flex";$("errList").innerHTML="";
+    $("scriptEmpty").style.display="flex";$("scriptBlock").style.display="none";window._scriptText=null;
+    setStatus("idle");toast("Runner reset","ok");
+  }catch(e){toast("Reset failed","err")}
+});
 
 // Charts
-const COPTS=c=>({responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{mode:"index",intersect:false}},scales:{x:{ticks:{color:"#4b5563",font:{size:10},maxTicksLimit:8},grid:{color:"rgba(28,31,46,.5)"}},y:{ticks:{color:"#4b5563",font:{size:10}},grid:{color:"rgba(28,31,46,.5)"},beginAtZero:true}}});
-function mkDS(c){return{data:[],borderColor:c,backgroundColor:c.replace(")",",0.12)").replace("rgb","rgba"),borderWidth:2,pointRadius:0,tension:.35,fill:true}}
-function initCharts(){const cols={chartRps:"rgb(249,115,22)",chartRt:"rgb(96,165,250)",chartFail:"rgb(248,113,113)",chartUsers:"rgb(167,139,250)"};Object.entries(cols).forEach(([id,c])=>{const ctx=document.getElementById(id);if(S.charts[id])S.charts[id].destroy();S.charts[id]=new Chart(ctx.getContext("2d"),{type:"line",data:{labels:[],datasets:[mkDS(c)]},options:COPTS(c)})})}
-function pushChart(ts,rps,avgRt,fails,users){[["chartRps",rps],["chartRt",avgRt],["chartFail",fails],["chartUsers",users]].forEach(([id,v])=>{const ch=S.charts[id];if(!ch)return;ch.data.labels.push(ts+"s");ch.data.datasets[0].data.push(v);if(ch.data.labels.length>60){ch.data.labels.shift();ch.data.datasets[0].data.shift()}ch.update("none")})}
+const COPTS=c=>({responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{mode:"index",intersect:false,callbacks:{label:ctx=>` ${ctx.dataset.label||""}: ${ctx.parsed.y}`}}},scales:{x:{ticks:{color:"#4b5563",font:{size:10},maxTicksLimit:8},grid:{color:"rgba(28,31,46,.5)"}},y:{ticks:{color:"#4b5563",font:{size:10}},grid:{color:"rgba(28,31,46,.5)"},beginAtZero:true}}});
+function mkDS(c,lbl){return{label:lbl||"",data:[],borderColor:c,backgroundColor:c.replace(")",",0.08)").replace("rgb","rgba"),borderWidth:2,pointRadius:0,tension:.35,fill:true}}
+function initCharts(){
+  const singles={chartRps:["rgb(249,115,22)","RPS"],chartFail:["rgb(248,113,113)","Failures"],chartUsers:["rgb(167,139,250)","Users"]};
+  Object.entries(singles).forEach(([id,[c,lbl]])=>{const ctx=document.getElementById(id);if(S.charts[id])S.charts[id].destroy();S.charts[id]=new Chart(ctx.getContext("2d"),{type:"line",data:{labels:[],datasets:[mkDS(c,lbl)]},options:COPTS(c)})});
+  // Response time chart: two lines — Avg (blue) and p95 (purple)
+  const rtCtx=document.getElementById("chartRt");
+  if(S.charts.chartRt)S.charts.chartRt.destroy();
+  const rtOpts=COPTS("rgb(96,165,250)");
+  rtOpts.plugins.legend={display:true,labels:{color:"#4b5563",font:{size:10},boxWidth:10}};
+  S.charts.chartRt=new Chart(rtCtx.getContext("2d"),{type:"line",data:{labels:[],datasets:[mkDS("rgb(96,165,250)","Avg"),mkDS("rgb(167,139,250)","p95")]},options:rtOpts});
+}
+function pushChart(ts,rps,avgRt,p95Rt,fails,users){
+  [["chartRps",rps],["chartFail",fails],["chartUsers",users]].forEach(([id,v])=>{
+    const ch=S.charts[id];if(!ch)return;
+    ch.data.labels.push(ts+"s");ch.data.datasets[0].data.push(v);
+    if(ch.data.labels.length>60){ch.data.labels.shift();ch.data.datasets[0].data.shift()}
+    ch.update("none");
+  });
+  const rtCh=S.charts.chartRt;if(rtCh){
+    rtCh.data.labels.push(ts+"s");
+    rtCh.data.datasets[0].data.push(avgRt);rtCh.data.datasets[1].data.push(p95Rt||0);
+    if(rtCh.data.labels.length>60){rtCh.data.labels.shift();rtCh.data.datasets[0].data.shift();rtCh.data.datasets[1].data.shift()}
+    rtCh.update("none");
+  }
+}
 
 // WebSocket
 function connectWS(){
@@ -512,9 +558,11 @@ function connectWS(){
   S.ws.onmessage=e=>{
     const m=JSON.parse(e.data);
     updateOv(m);updateTable(m.stats||[]);updateErrors(m.errors||[]);
-    if(m.timeseries&&m.timeseries.length){const l=m.timeseries[m.timeseries.length-1];pushChart(l.t,l.rps,l.avg_rt,l.failures,l.users)}
+    if(m.timeseries&&m.timeseries.length){const l=m.timeseries[m.timeseries.length-1];pushChart(l.t,l.rps,l.avg_rt,l.p95_rt||0,l.failures,l.users)}
     if(m.status==="completed"||m.status==="failed"){S.running=false;resetUI();setStatus(m.status);S.ws.close();fetchScript();loadHistory()}
   };
+  S.ws.onclose=()=>{if(S.running){setTimeout(connectWS,2500)}};
+  S.ws.onerror=()=>{if(S.ws)S.ws.close()};
 }
 
 // Overview
@@ -530,7 +578,7 @@ function updateOv(m){
 }
 function updateTable(stats){
   if(!stats.length)return;$("epEmpty").style.display="none";$("tblWrap").style.display="block";
-  $("tblBody").innerHTML=stats.map(s=>{const fp=s.failure_rate.toFixed(1);return`<tr><td><span class="mb ${s.method}">${s.method}</span></td><td>${s.name}</td><td>${fmtN(s.num_requests)}</td><td>${fmtN(s.num_failures)}</td><td><span class="fp ${fpClass(s.failure_rate)}">${fp}%</span></td><td>${s.avg_response_time.toFixed(0)}</td><td>${s.p50.toFixed(0)}</td><td>${s.p95.toFixed(0)}</td><td>${s.p99.toFixed(0)}</td><td>${s.rps.toFixed(2)}</td></tr>`}).join("");
+  $("tblBody").innerHTML=stats.map(s=>{const fp=s.failure_rate.toFixed(1);return`<tr><td><span class="mb ${s.method}">${s.method}</span></td><td>${s.name}</td><td>${fmtN(s.num_requests)}</td><td>${fmtN(s.num_failures)}</td><td><span class="fp ${fpClass(s.failure_rate)}">${fp}%</span></td><td>${(s.min_response_time||0).toFixed(0)}</td><td>${s.avg_response_time.toFixed(0)}</td><td>${s.p50.toFixed(0)}</td><td>${s.p95.toFixed(0)}</td><td>${s.p99.toFixed(0)}</td><td>${s.rps.toFixed(2)}</td></tr>`}).join("");
 }
 function updateErrors(errors){const em=$("errEmpty"),li=$("errList");if(!errors.length){em.style.display="flex";li.innerHTML="";return}em.style.display="none";li.innerHTML=errors.map(e=>`<div class="err-item"><div class="err-name">${e["Error"]||e.error||JSON.stringify(e)}</div><div class="err-meta">Count: ${e["Occurrences"]||"?"} | Method: ${e["Method"]||"?"} | Path: ${e["Name"]||"?"}</div></div>`).join("")}
 

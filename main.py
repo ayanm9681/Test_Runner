@@ -182,9 +182,9 @@ async def metrics_websocket(ws: WebSocket):
 
 
 def _auto_save(source: str = "local"):
-    """Save the last completed run to history."""
+    """Save the last completed run to history (exactly once per run)."""
     try:
-        if runner._config is None:
+        if runner._config is None or runner._run_saved:
             return
         metrics = runner.get_metrics()
         run_id = hist.save_run(
@@ -194,6 +194,7 @@ def _auto_save(source: str = "local"):
             script=runner.get_script(),
             source=source,
         )
+        runner._run_saved = True
         logger.info(f"Auto-saved run {run_id} to {source} history")
     except Exception as e:
         logger.warning(f"Auto-save failed: {e}")

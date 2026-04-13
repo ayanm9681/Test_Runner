@@ -5,7 +5,7 @@ import time
 import os
 import signal
 import tempfile
-import json
+import shutil
 import logging
 from typing import Optional
 
@@ -29,7 +29,23 @@ class LocustRunner:
         self._stats_file: Optional[str] = None
         self.timeseries: list[dict] = []
         self._ts_task: Optional[asyncio.Task] = None
+        self._watch_task: Optional[asyncio.Task] = None
         self.history_target: str = "local"
+        self._run_saved: bool = False
+
+    @staticmethod
+    def _sf(v) -> float:
+        try:
+            return float(v or 0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    @staticmethod
+    def _si(v) -> int:
+        try:
+            return int(v or 0)
+        except (ValueError, TypeError):
+            return 0
 
     @property
     def status(self) -> TestStatus:
@@ -52,6 +68,7 @@ class LocustRunner:
         self._config = config
         self._status = TestStatus.RUNNING
         self._start_time = time.time()
+        self._run_saved = False
         self.timeseries = []
 
         script_content = generate_locust_script(config)
@@ -92,7 +109,7 @@ class LocustRunner:
                 preexec_fn=os.setsid,
             )
 
-        asyncio.create_task(self._watch_process())
+        self._watch_task = asyncio.create_task(self._watch_process())
         self._ts_task = asyncio.create_task(self._collect_timeseries())
 
     async def stop(self) -> None:
@@ -114,6 +131,15 @@ class LocustRunner:
             except Exception as exc:
                 logger.warning(f"Error stopping locust process: {exc}")
         self._status = TestStatus.COMPLETED
+        # Capture one final snapshot after process terminates
+        try:
+            snap = self._parse_aggregate()
+            if snap:
+                snap["t"] = round(time.time() - self._start_time, 1) if self._start_time else 0
+                if not self.timeseries or self.timeseries[-1].get("t") != snap["t"]:
+                    self.timeseries.append(snap)
+        except Exception:
+            pass
 
     async def _watch_process(self):
         loop = asyncio.get_event_loop()
@@ -121,11 +147,22 @@ class LocustRunner:
         if self._status == TestStatus.RUNNING:
             self._status = TestStatus.COMPLETED
         self._end_time = time.time()
+        # Capture a final timeseries point when process exits naturally
+        try:
+            snap = self._parse_aggregate()
+            if snap:
+                snap["t"] = round(self._end_time - self._start_time, 1) if self._start_time else 0
+                if not self.timeseries or self.timeseries[-1].get("t") != snap["t"]:
+                    self.timeseries.append(snap)
+        except Exception:
+            pass
         logger.info(f"Locust process ended with returncode {self._process.returncode}")
 
     async def _collect_timeseries(self):
         while self.is_running():
             await asyncio.sleep(3)
+            if not self.is_running():
+                break
             try:
                 snap = self._parse_aggregate()
                 if snap:
@@ -141,18 +178,13 @@ class LocustRunner:
         with open(stats_csv, newline="") as f:
             for row in csv.DictReader(f):
                 if row.get("Name", "").strip() == "Aggregated":
-                    def sf(v):
-                        try: return float(v or 0)
-                        except: return 0.0
-                    def si(v):
-                        try: return int(v or 0)
-                        except: return 0
                     return {
-                        "rps":       round(sf(row.get("Requests/s", 0)), 2),
-                        "avg_rt":    round(sf(row.get("Average Response Time", 0)), 1),
-                        "p95_rt":    round(sf(row.get("95%", 0)), 1),
-                        "total_req": si(row.get("Request Count", 0)),
-                        "failures":  si(row.get("Failure Count", 0)),
+                        "rps":       round(self._sf(row.get("Requests/s", 0)), 2),
+                        "avg_rt":    round(self._sf(row.get("Average Response Time", 0)), 1),
+                        "p95_rt":    round(self._sf(row.get("95%", 0)), 1),
+                        "p99_rt":    round(self._sf(row.get("99%", 0)), 1),
+                        "total_req": self._si(row.get("Request Count", 0)),
+                        "failures":  self._si(row.get("Failure Count", 0)),
                         "users":     self._config.users if self._config else 0,
                     }
         return None
@@ -180,36 +212,29 @@ class LocustRunner:
                     else:
                         endpoint_rows.append(row)
 
-                def sf(v):
-                    try: return float(v or 0)
-                    except: return 0.0
-                def si(v):
-                    try: return int(v or 0)
-                    except: return 0
-
                 for row in endpoint_rows:
-                    nr = si(row.get("Request Count", 0))
-                    nf = si(row.get("Failure Count", 0))
+                    nr = self._si(row.get("Request Count", 0))
+                    nf = self._si(row.get("Failure Count", 0))
                     stats_list.append(RequestStat(
                         name=row.get("Name", ""),
                         method=row.get("Type", ""),
                         num_requests=nr,
                         num_failures=nf,
-                        avg_response_time=sf(row.get("Average Response Time", 0)),
-                        min_response_time=sf(row.get("Min Response Time", 0)),
-                        max_response_time=sf(row.get("Max Response Time", 0)),
-                        p50=sf(row.get("50%", 0)),
-                        p95=sf(row.get("95%", 0)),
-                        p99=sf(row.get("99%", 0)),
-                        rps=sf(row.get("Requests/s", 0)),
+                        avg_response_time=self._sf(row.get("Average Response Time", 0)),
+                        min_response_time=self._sf(row.get("Min Response Time", 0)),
+                        max_response_time=self._sf(row.get("Max Response Time", 0)),
+                        p50=self._sf(row.get("50%", 0)),
+                        p95=self._sf(row.get("95%", 0)),
+                        p99=self._sf(row.get("99%", 0)),
+                        rps=self._sf(row.get("Requests/s", 0)),
                         failure_rate=(nf / nr * 100) if nr > 0 else 0.0,
                     ))
                 if aggregate:
-                    total_requests = si(aggregate.get("Request Count", 0))
-                    total_failures = si(aggregate.get("Failure Count", 0))
-                    total_rps = sf(aggregate.get("Requests/s", 0))
-                    avg_rt = sf(aggregate.get("Average Response Time", 0))
-                    p95_rt = sf(aggregate.get("95%", 0))
+                    total_requests = self._si(aggregate.get("Request Count", 0))
+                    total_failures = self._si(aggregate.get("Failure Count", 0))
+                    total_rps = self._sf(aggregate.get("Requests/s", 0))
+                    avg_rt = self._sf(aggregate.get("Average Response Time", 0))
+                    p95_rt = self._sf(aggregate.get("95%", 0))
             except Exception as e:
                 logger.warning(f"Could not parse stats CSV: {e}")
 
@@ -244,9 +269,30 @@ class LocustRunner:
     def reset(self):
         if self.is_running():
             raise RuntimeError("Cannot reset while test is running.")
+        # Cancel any lingering background tasks
+        for task in (self._ts_task, self._watch_task):
+            if task and not task.done():
+                task.cancel()
+        self._ts_task = None
+        self._watch_task = None
+        # Clean up temp files to avoid disk leaks
+        if self._script_path and os.path.exists(self._script_path):
+            try:
+                os.unlink(self._script_path)
+            except OSError:
+                pass
+        if self._stats_dir and os.path.isdir(self._stats_dir):
+            try:
+                shutil.rmtree(self._stats_dir)
+            except OSError:
+                pass
         self._process = None
         self._config = None
         self._status = TestStatus.IDLE
         self._start_time = None
         self._end_time = None
+        self._script_path = None
+        self._stats_dir = None
+        self._stats_file = None
+        self._run_saved = False
         self.timeseries = []

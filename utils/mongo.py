@@ -20,6 +20,7 @@ def _env(name: str, default: str | None = None) -> str | None:
 MONGO_URI = _env("MONGO_CONNECTION") or _env("MONGO_URI")
 DB_NAME = _env("DB_NAME") or "TestRunner"
 COLLECTION_NAME = _env("TEST_COLLECTION") or "test_run_results"
+TEST_CONFIG_COLLECTION_NAME = _env("TEST_CONFIG_COLLECTION") or "test_config"
 
 client: Optional[MongoClient]
 if MONGO_URI:
@@ -30,13 +31,15 @@ else:
 if client:
     db = client[DB_NAME]
     collection: Optional[Collection] = db[COLLECTION_NAME]
+    test_config_collection: Optional[Collection] = db[TEST_CONFIG_COLLECTION_NAME]
 else:
     db = None
     collection = None
+    test_config_collection = None
 
 
 def connect_mongo() -> None:
-    if client is None or collection is None:
+    if client is None or collection is None or test_config_collection is None:
         raise RuntimeError("MongoDB connection is not configured. Set MONGO_CONNECTION in .env.")
     try:
         client.admin.command("ping")

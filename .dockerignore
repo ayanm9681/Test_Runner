@@ -1,0 +1,33 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets / local config (pass via env vars or --env-file at runtime)
+.env
+
+# Git
+.git/
+.gitignore
+
+# Local test history (not baked into image)
+locust_history.json
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Docs (optional — remove if you want them in the image)
+*.md
