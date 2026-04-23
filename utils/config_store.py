@@ -7,6 +7,7 @@ everything from scratch.
 
 import json
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +21,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIGS_FILE = BASE_DIR / "test_configs.json"
 CONFIG_COLLECTION = "test_config"
 MAX_CONFIGS = 50
+
+_local_lock = threading.Lock()
 
 
 # ── internal helpers ──────────────────────────────────────────────────────────
@@ -93,9 +96,10 @@ def save_config(name: str, config: dict, source: str = "local") -> str:
             col.delete_many({"_id": {"$in": stale_ids}})
         logger.info(f"Saved config '{name}' ({config_id}) to MongoDB")
     else:
-        records = _load_json()
-        records.insert(0, record)
-        _save_json(records[:MAX_CONFIGS])
+        with _local_lock:
+            records = _load_json()
+            records.insert(0, record)
+            _save_json(records[:MAX_CONFIGS])
         logger.info(f"Saved config '{name}' ({config_id}) to local JSON")
     return config_id
 
@@ -124,11 +128,12 @@ def delete_config(config_id: str, source: str = "local") -> bool:
     if source == "db":
         col = _require_collection()
         return col.delete_one({"config_id": config_id}).deleted_count > 0
-    records = _load_json()
-    filtered = [r for r in records if r["config_id"] != config_id]
-    if len(filtered) == len(records):
-        return False
-    _save_json(filtered)
+    with _local_lock:
+        records = _load_json()
+        filtered = [r for r in records if r["config_id"] != config_id]
+        if len(filtered) == len(records):
+            return False
+        _save_json(filtered)
     return True
 
 
@@ -139,6 +144,7 @@ def clear_all(source: str = "local") -> int:
         count = col.count_documents({})
         col.delete_many({})
         return count
-    records = _load_json()
-    _save_json([])
+    with _local_lock:
+        records = _load_json()
+        _save_json([])
     return len(records)

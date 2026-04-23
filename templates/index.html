@@ -159,6 +159,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 <header>
   <a class="logo" href="/"><div class="logo-hex"><svg viewBox="0 0 24 24" fill="#fff"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><span class="logo-text">Locust<span>Forge</span></span></a>
   <div class="header-right">
+    <div class="pill" id="queuePill" style="display:none"><span class="pill-dot" style="background:var(--yellow);animation:blink 1.2s infinite"></span><span id="queueText">0 queued</span></div>
     <div class="pill" id="statusPill"><span class="pill-dot"></span><span id="statusText">IDLE</span></div>
     <button class="btn btn-s btn-sm" id="historyBtn">History</button>
   </div>
@@ -221,6 +222,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
       <button class="tab" data-tab="endpoints">Endpoints</button>
       <button class="tab" data-tab="errors">Errors</button>
       <button class="tab" data-tab="script">Script</button>
+      <button class="tab" data-tab="queue" id="queueTab">Queue</button>
     </div>
     <div class="tab-body">
       <div class="tpane active" id="tab-overview">
@@ -259,6 +261,14 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
         <div class="script-bar"><span style="font-size:.73rem;color:var(--muted)">Generated Locust script</span><div style="display:flex;gap:.5rem"><button class="btn btn-s btn-sm" id="copyScriptBtn">Copy</button><button class="btn btn-s btn-sm" id="dlScriptBtn">Download</button></div></div>
         <div id="scriptEmpty" class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg><p>Click <strong>Script</strong> or run a test to generate.</p></div>
         <pre class="code-block" id="scriptBlock" style="display:none"></pre>
+      </div>
+      <div class="tpane" id="tab-queue">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+          <span style="font-size:.73rem;color:var(--muted);font-weight:700;letter-spacing:.07em;text-transform:uppercase">Test Queue</span>
+          <button class="btn btn-d btn-sm" id="clearJobsBtn">Clear Completed</button>
+        </div>
+        <div id="jobsEmpty" class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><p>No jobs yet. Submit a test to see the queue.</p></div>
+        <div id="jobsList" style="display:flex;flex-direction:column;gap:.5rem"></div>
       </div>
     </div>
   </section>
@@ -354,7 +364,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 <div id="toast"></div>
 
 <script>
-const S={endpoints:[],editIdx:-1,running:false,ws:null,duration:30,startTime:null,progTimer:null,elapsedTimer:null,charts:{}};
+const S={endpoints:[],editIdx:-1,running:false,ws:null,duration:30,startTime:null,progTimer:null,elapsedTimer:null,queueTabTimer:null,charts:{}};
 const DEFAULTS=[
   {name:"List Posts",method:"GET",path:"/posts",weight:3,headers:null,body:null,extract:[],inject:[]},
   {name:"Get Post",method:"GET",path:"/posts/1",weight:2,headers:null,body:null,extract:[],inject:[]},
@@ -516,20 +526,31 @@ function buildConfig(){
 $("startBtn").addEventListener("click",async()=>{
   if(!S.endpoints.length){toast("Add at least one endpoint","err");return}
   const cfg=buildConfig();const btn=$("startBtn");
-  btn.innerHTML='<span class="spin"></span> Starting\u2026';btn.disabled=true;
+  const origHTML=btn.innerHTML;btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
   try{
     const r=await fetch("/api/test/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)});
-    if(!r.ok){const d=await r.json();throw new Error(d.detail||"Failed")}
-    S.running=true;S.duration=cfg.duration;S.startTime=Date.now();
-    $("stopBtn").disabled=false;$("resetBtn").style.display="none";btn.innerHTML='<span class="spin"></span> Running\u2026';
-    setStatus("running");toast("Test started!","ok");
-    startProg();initCharts();connectWS();$("ovEmpty").style.display="none";$("chartsEmpty").style.display="none";
-  }catch(e){
-    toast(e.message,"err");
-    btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test';btn.disabled=false;
-  }
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.detail||"Failed");
+    if(d.queue_position===0){
+      // Starting immediately — no other test was running
+      S.running=true;S.duration=cfg.duration;S.startTime=Date.now();
+      $("stopBtn").disabled=false;$("resetBtn").style.display="none";
+      setStatus("running");toast("Test started!","ok");
+      startProg();initCharts();
+      if(!S.ws||S.ws.readyState>1)connectWS();
+      $("ovEmpty").style.display="none";$("chartsEmpty").style.display="none";
+    }else{
+      toast(`Queued at position ${d.queue_position+1} \u2014 job ${d.job_id}`,"ok");
+      loadJobs();
+    }
+  }catch(e){toast(e.message,"err")}
+  finally{btn.innerHTML=origHTML;btn.disabled=false}
 });
-$("stopBtn").addEventListener("click",async()=>{await fetch("/api/test/stop",{method:"POST"});S.running=false;resetUI();toast("Stopped","ok");setStatus("completed")});
+$("stopBtn").addEventListener("click",async()=>{
+  await fetch("/api/test/stop",{method:"POST"});
+  toast("Test stopped — queue continues","ok");
+  // UI resets when WS reports completed
+});
 function resetUI(){
   const btn=$("startBtn");
   btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Run Test';
@@ -584,20 +605,41 @@ function pushChart(ts,rps,avgRt,p95Rt,fails,users){
   }
 }
 
-// WebSocket
+// WebSocket — stays open permanently; auto-reconnects on drop
 function connectWS(){
-  if(S.ws)S.ws.close();
+  if(S.ws&&S.ws.readyState<2)S.ws.close();
   const proto=location.protocol==="https:"?"wss":"ws";
   S.ws=new WebSocket(`${proto}://${location.host}/ws/metrics`);
   S.ws.onmessage=e=>{
     const m=JSON.parse(e.data);
+    // ── queue badge ──────────────────────────────────────────────────────
+    const qd=m.queue_depth||0;
+    $("queuePill").style.display=qd>0?"flex":"none";
+    $("queueText").textContent=qd+" queued";
+    if($("queueTab").classList.contains("active"))loadJobs();
+    // ── stop button ──────────────────────────────────────────────────────
+    $("stopBtn").disabled=m.status!=="running";
+    // ── metrics / charts ─────────────────────────────────────────────────
     updateOv(m);updateTable(m.stats||[]);updateErrors(m.errors||[]);
     if(m.timeseries&&m.timeseries.length){const l=m.timeseries[m.timeseries.length-1];pushChart(l.t,l.rps,l.avg_rt,l.p95_rt||0,l.failures,l.users)}
-    if(m.status==="completed"||m.status==="failed"){S.running=false;resetUI();setStatus(m.status);S.ws.close();fetchScript();loadHistory()}
+    // ── state transitions ─────────────────────────────────────────────────
+    if((m.status==="completed"||m.status==="failed")&&S.running){
+      // Current test just finished
+      S.running=false;resetUI();setStatus(m.status);fetchScript();loadHistory();
+    } else if(m.status==="running"&&!S.running){
+      // Queue auto-advanced to next job
+      S.running=true;S.startTime=Date.now();S.duration=m.current_duration||30;
+      $("stopBtn").disabled=false;$("resetBtn").style.display="none";
+      setStatus("running");startProg();initCharts();
+      $("ovEmpty").style.display="none";$("chartsEmpty").style.display="none";
+      toast("Next queued test started","ok");loadJobs();
+    }
   };
-  S.ws.onclose=()=>{if(S.running){setTimeout(connectWS,2500)}};
+  S.ws.onclose=()=>{setTimeout(connectWS,2500)};  // always reconnect
   S.ws.onerror=()=>{if(S.ws)S.ws.close()};
 }
+// Connect on page load so queue badge updates even before first test
+connectWS();
 
 // Overview
 function updateOv(m){
@@ -644,6 +686,67 @@ $("hdtl").addEventListener("click",e=>{if(e.target===$("hdtl"))$("hdtl").classLi
 $("clearHistBtn").addEventListener("click",async()=>{const src=($("historySource")||{}).value||"local";if(!confirm("Clear all test history?"))return;await fetch(`/api/history?source=${src}`,{method:"DELETE"});toast("History cleared","ok");loadHistory()});
 $("historyBtn").addEventListener("click",()=>{document.querySelectorAll(".stab").forEach(x=>x.classList.remove("active"));document.querySelector('[data-stab="history"]').classList.add("active");$("stab-config").style.display="none";$("stab-history").style.display="";loadHistory()});
 $("historySource")&&$("historySource").addEventListener("change",loadHistory);
+
+// ── Job Queue tab ──────────────────────────────────────────────────────────────
+
+const JOB_COLORS={queued:"var(--yellow)",running:"var(--green)",completed:"var(--blue)",failed:"var(--red)",cancelled:"var(--muted)"};
+const JOB_ICONS={queued:"&#9203;",running:'<span class="spin" style="display:inline-block"></span>',completed:"&#10003;",failed:"&#10007;",cancelled:"&#8212;"};
+
+async function loadJobs(){
+  let d;
+  try{const r=await fetch("/api/jobs");d=await r.json()}
+  catch{return}
+  const jobs=d.jobs||[];
+  const empty=$("jobsEmpty"),list=$("jobsList");
+  if(!jobs.length){empty.style.display="flex";list.style.display="none";list.innerHTML="";return}
+  empty.style.display="none";list.style.display="flex";
+  list.innerHTML=jobs.map(j=>{
+    const col=JOB_COLORS[j.status]||"var(--muted)";
+    const ico=JOB_ICONS[j.status]||"";
+    const dur=j.elapsed!=null?`${j.elapsed}s`:(j.started_at?Math.floor(Date.now()/1000-j.started_at)+"s elapsed":"waiting");
+    const rps=j.rps!=null?`<span style="font-family:var(--mono);font-size:.82rem;font-weight:700;color:var(--accent)">${j.rps}</span><span style="font-size:.58rem;color:var(--muted)"> RPS</span>`:"";
+    const cancelBtn=(j.status==="queued"||j.status==="running")?
+      `<button class="btn btn-d btn-sm" onclick="cancelJob('${j.job_id}')" style="flex-shrink:0">&#9632; ${j.status==="running"?"Stop":"Cancel"}</button>`:"";
+    return`<div style="background:var(--s1);border:1px solid var(--border);border-left:3px solid ${col};border-radius:var(--r);padding:.75rem 1rem;display:grid;grid-template-columns:1fr auto;gap:.6rem;align-items:center">
+      <div>
+        <div style="display:flex;align-items:center;gap:.45rem;margin-bottom:.26rem">
+          <span style="font-size:.72rem;font-weight:700;color:${col};text-transform:uppercase;letter-spacing:.07em">${ico} ${j.status}</span>
+          <span style="font-family:var(--mono);font-size:.6rem;color:var(--muted)">job ${j.job_id}</span>
+        </div>
+        <div style="font-size:.8rem;font-weight:600;margin-bottom:.22rem">${j.base_url}</div>
+        <div style="font-family:var(--mono);font-size:.65rem;color:var(--muted);display:flex;gap:.65rem;flex-wrap:wrap">
+          <span>${j.users} users &middot; ${j.duration}s target</span>
+          <span>${dur}</span>
+          <span>${fmtDate(j.submitted_at)}</span>
+          ${j.error?`<span style="color:var(--red)">${j.error}</span>`:""}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:.5rem">${rps}${cancelBtn}</div>
+    </div>`;
+  }).join("");
+}
+
+async function cancelJob(jobId){
+  try{
+    const r=await fetch(`/api/jobs/${jobId}`,{method:"DELETE"});
+    if(!r.ok){const d=await r.json();throw new Error(d.detail)}
+    toast("Job cancelled","ok");loadJobs();
+  }catch(e){toast(e.message,"err")}
+}
+
+$("clearJobsBtn").addEventListener("click",async()=>{
+  await fetch("/api/jobs",{method:"DELETE"});
+  toast("Completed jobs cleared","ok");loadJobs();
+});
+
+// Auto-refresh queue tab while it is active
+document.querySelector('[data-tab="queue"]').addEventListener("click",()=>{
+  loadJobs();
+  S.queueTabTimer=setInterval(loadJobs,2000);
+});
+document.querySelectorAll('.tab:not([data-tab="queue"])').forEach(t=>t.addEventListener("click",()=>{
+  clearInterval(S.queueTabTimer);
+}));
 
 // ── Saved Configs ──────────────────────────────────────────────────────────────
 
