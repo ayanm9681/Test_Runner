@@ -6,15 +6,14 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Security, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from fastapi.security import APIKeyHeader
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.requests import HTTPConnection
 
 from models import TestConfig, TestMetrics, TestStatus, SaveConfigRequest
 from utils.job_queue import JobQueue
@@ -31,11 +30,14 @@ BASE_DIR = Path(__file__).resolve().parent
 # ── Optional API-key auth ──────────────────────────────────────────────────────
 # Set API_KEY in .env to enable. Leave unset to run open (local dev default).
 _API_KEY = os.getenv("API_KEY", "").strip()
-_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def _check_api_key(key: str = Security(_key_header)) -> None:
-    if _API_KEY and key != _API_KEY:
+async def _check_api_key(conn: HTTPConnection) -> None:
+    """Works for both HTTP (header) and WebSocket (header or query param)."""
+    if not _API_KEY:
+        return
+    key = conn.headers.get("x-api-key", "") or conn.query_params.get("api_key", "")
+    if key != _API_KEY:
         raise HTTPException(status_code=403, detail="Invalid or missing X-API-Key header")
 
 
@@ -299,13 +301,6 @@ async def clear_configs(source: str = "local"):
 
 @app.websocket("/ws/metrics")
 async def metrics_websocket(ws: WebSocket):
-    # Optional API-key check via query param for WebSocket clients
-    if _API_KEY:
-        key = ws.query_params.get("api_key", "")
-        if key != _API_KEY:
-            await ws.close(code=4403)
-            return
-
     await ws.accept()
     logger.info("WebSocket client connected")
     try:
