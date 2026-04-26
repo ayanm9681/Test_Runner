@@ -10,18 +10,18 @@ A FastAPI-powered web UI for building and running [Locust](https://locust.io) lo
 
 > This is a **lite showcase build** — intentionally simple, zero-infrastructure, single-file UI. The trade-offs below are known and accepted for that purpose. Here's what they are and how you'd fix them at scale.
 
-| # | Limitation in this build | Root cause | Production remedy |
-|---|--------------------------|------------|-------------------|
-| 1 | **One test at a time, globally** | `LocustRunner` is a module-level singleton; a second `POST /api/test/start` is rejected with 409 | Replace the singleton with a job queue (Celery + Redis / RQ). Each submitted test becomes a task; results are keyed by job ID, enabling concurrent multi-tenant runs |
-| 2 | **In-memory state lost on restart** | Timeseries, current metrics, and runner status live only in the Python process | Stream intermediate snapshots to Redis or MongoDB during the run so a restarted server can reconstruct live state |
-| 3 | **WebSocket breaks behind a load balancer** | The `/ws/metrics` handler polls the in-process runner object; with multiple uvicorn workers or replicas, a client may connect to a worker that has no runner state | Add sticky sessions at the LB layer, or push metric events through a Redis pub/sub channel that every worker subscribes to |
-| 4 | **Locust is capped to one machine** | Locust subprocess runs in headless single-process mode on the API host; max practical users is a few thousand on a small VM | Use Locust's native **master/worker** distributed mode — spin up worker pods (e.g. K8s Jobs) that the master coordinates; the API only drives the master |
-| 5 | **Flat-file storage has no concurrency safety** | `locust_history.json` and `test_configs.json` are read-parse-write with no locking; two simultaneous saves can corrupt the file | Already partially solved by the MongoDB path. For local-only deployments, replace with SQLite (via `aiosqlite`) which provides proper file locking |
-| 6 | **No authentication or authorization** | All API endpoints and the UI are open with `allow_origins=["*"]` CORS | Add an auth layer (OAuth2 / JWT via `fastapi-users`, or a simple API-key header check). Tighten CORS to known origins |
-| 7 | **Metrics polling latency is ~3 s** | `_collect_timeseries` sleeps 3 s between CSV reads; Locust writes stats periodically to CSV | Integrate with Locust's internal `stats` object via its REST API (`/stats/requests`) at sub-second intervals, or use `locust-plugins` event hooks for push-based streaming |
-| 8 | **Temp files can accumulate on crashes** | If the API process is killed mid-test, `reset()` never runs so `/tmp/locust_*` directories are orphaned | Add a startup hook that scans for and removes stale temp dirs older than N hours, or configure Docker with `tmpfs` mounts that are wiped on container restart |
-| 9 | **No rate limiting** | Any client can `POST /api/test/start` in a loop | Add `slowapi` (or an Nginx/Kong gateway rule) to rate-limit test-start calls per IP / API key |
-| 10 | **Script execution is fully trusted** | Generated Locust scripts are written to disk and executed as a subprocess with the same OS user as the API | Run the subprocess inside a container sandbox (e.g. `gVisor`, Docker-in-Docker, or an ephemeral K8s pod) with no network access beyond the target host |
+| # | Status | Limitation | Root cause | Remedy |
+|---|--------|------------|------------|--------|
+| 1 | ✅ **Fixed** | ~~One test at a time~~ | Singleton runner rejected concurrent starts with 409 | `asyncio.Queue`-backed `JobQueue` (`utils/job_queue.py`) — tests queue and execute sequentially; zero extra dependencies |
+| 2 | ⏭ Skipped | **In-memory state lost on restart** | Timeseries lives only in the Python process | Would require flushing every 2 s snapshot to disk/DB — I/O cost not justified for a local tool. Production fix: Redis streams |
+| 3 | ⏭ Skipped | **WebSocket breaks behind a load balancer** | WS handler polls in-process runner object | Requires Redis pub/sub fan-out across workers. Not applicable to single-instance local use |
+| 4 | ⏭ Skipped | **Locust capped to one machine** | Single headless subprocess per run | Locust master/worker distributed mode requires separate worker processes and infra coordination |
+| 5 | ✅ **Fixed** | ~~Flat JSON has no concurrency safety~~ | Read-modify-write with no locking | `threading.Lock()` wraps every mutating operation in `history.py` and `config_store.py` |
+| 6 | ✅ **Fixed** | ~~No authentication~~ | All endpoints open | Optional `API_KEY` env var — if set, every HTTP route enforces `X-API-Key` header; WS accepts `?api_key=` |
+| 7 | ✅ **Fixed** | ~~Metrics polling latency ~3 s~~ | Hardcoded `asyncio.sleep(3)` | Reduced to `2 s` to match WebSocket broadcast interval; chart updates are noticeably smoother |
+| 8 | ✅ **Fixed** | ~~Stale temp files after crashes~~ | `reset()` never called on hard kill | Startup lifespan hook scans `tempdir` and removes `locust_*` entries older than 1 hour |
+| 9 | ✅ **Fixed** | ~~No rate limiting~~ | Unrestricted `POST /api/test/start` | `slowapi` added — 20 starts/minute per IP; returns 429 with a clear message |
+| 10 | ⏭ Skipped | **Script runs as API process user** | `subprocess.Popen` inherits OS user | Requires `gVisor` / Docker-in-Docker sandboxing. Not a local dev concern |
 
 ---
 
@@ -96,6 +96,7 @@ Open http://localhost:6002 in your browser.
 | `MONGO_CONNECTION` | *(unset)*            | MongoDB URI — required for DB storage|
 | `DB_NAME`          | `TestRunner`         | MongoDB database name                |
 | `TEST_COLLECTION`  | `test_run_results`   | MongoDB collection name              |
+| `API_KEY`          | *(unset)*            | If set, all API calls require `X-API-Key: <value>` header. WS passes it as `?api_key=`. Leave unset for open local dev. |
 
 When `MONGO_CONNECTION` is not set the app runs fully without MongoDB; history is stored in `locust_history.json`.
 
@@ -110,7 +111,11 @@ When `MONGO_CONNECTION` is not set the app runs fully without MongoDB; history i
 | GET    | `/api/test/timeseries`  | Raw timeseries data points           |
 | GET    | `/api/test/script`      | Retrieve generated `locustfile.py`   |
 | POST   | `/api/script/preview`   | Preview script without running       |
-| POST   | `/api/test/reset`       | Reset runner to IDLE, clean temp files|
+| POST   | `/api/test/reset`       | Reset runner to IDLE, clean temp files (only when queue is empty)|
+| GET    | `/api/jobs`             | List all jobs (queued/running/done)  |
+| GET    | `/api/jobs/{job_id}`    | Full job details with metrics        |
+| DELETE | `/api/jobs/{job_id}`    | Cancel a queued or running job       |
+| DELETE | `/api/jobs`             | Clear completed/failed/cancelled jobs|
 | GET    | `/api/history`          | List all saved runs (summary)        |
 | GET    | `/api/history/{run_id}` | Full details of a run                |
 | DELETE | `/api/history/{run_id}` | Delete a specific run                |

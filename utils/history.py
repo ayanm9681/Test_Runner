@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -14,6 +15,10 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 HISTORY_FILE = BASE_DIR / "locust_history.json"
 MAX_RECORDS = 50  # keep the last N runs
+
+# Protects the local JSON read-modify-write cycle against concurrent access
+# within the same process (e.g. job queue auto-save racing with a delete call).
+_local_lock = threading.Lock()
 
 
 def _load_json() -> list[dict]:
@@ -48,10 +53,11 @@ def _require_db_collection() -> None:
 
 
 def _save_run_local(record: dict) -> str:
-    records = _load_json()
-    records.insert(0, record)
-    records = records[:MAX_RECORDS]
-    _save_json(records)
+    with _local_lock:
+        records = _load_json()
+        records.insert(0, record)
+        records = records[:MAX_RECORDS]
+        _save_json(records)
     logger.info(f"Saved run {record['run_id']} to local JSON history")
     return record["run_id"]
 
@@ -124,11 +130,12 @@ def _get_run_db(run_id: str) -> Optional[dict]:
 
 
 def _delete_run_local(run_id: str) -> bool:
-    records = _load_json()
-    filtered = [r for r in records if r["run_id"] != run_id]
-    if len(filtered) == len(records):
-        return False
-    _save_json(filtered)
+    with _local_lock:
+        records = _load_json()
+        filtered = [r for r in records if r["run_id"] != run_id]
+        if len(filtered) == len(records):
+            return False
+        _save_json(filtered)
     return True
 
 
@@ -139,8 +146,9 @@ def _delete_run_db(run_id: str) -> bool:
 
 
 def _clear_all_local() -> int:
-    records = _load_json()
-    _save_json([])
+    with _local_lock:
+        records = _load_json()
+        _save_json([])
     return len(records)
 
 

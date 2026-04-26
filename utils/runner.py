@@ -160,7 +160,7 @@ class LocustRunner:
 
     async def _collect_timeseries(self):
         while self.is_running():
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
             if not self.is_running():
                 break
             try:
