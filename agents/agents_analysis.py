@@ -21,7 +21,7 @@ import logging
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query, tool
 
-from agents_common import log_jsonl, strip_json_fences
+from agents_common import extract_usage, log_jsonl, strip_json_fences
 
 logger = logging.getLogger("agents.analysis")
 
@@ -101,18 +101,26 @@ For each endpoint that has any failures, identify:
   "details") just because you judged the endpoint business_logic; a human reading this later needs
   to see the same evidence you based that judgment on. If no JSON body is present, construct a
   minimal object with at least "status" (if known) and "message" describing what actually happened.
+- "suggested_fix": ONLY for "system_fault" or "unclear" — one short, concrete, actionable sentence
+  grounded in what you actually saw (e.g. "Add retry-with-backoff on 5xx from the payment gateway",
+  "Investigate DB connection pool sizing — pool exhausted under load", "Null-check userTier before
+  reading discount rate"). Do not restate the cause, propose the fix for it. Leave this "" for
+  "business_logic" — there is nothing to fix, the system is working as designed.
 
 Respond with ONLY a compact JSON array, no other text, no markdown fences, one entry per failing
 endpoint (skip endpoints with zero failures):
 [{"api": "<path>", "method": "<HTTP method>", "category": "business_logic"|"system_fault"|"unclear",
   "likely_cause": "<one or two sentences, lead with the code if one was present>",
+  "suggested_fix": "<one short sentence, or \\"\\" for business_logic>",
   "error": {<the structured error object described above>}}]
 """
 
 
-async def run_analysis(final_metrics: dict) -> list[dict]:
+async def run_analysis(final_metrics: dict) -> tuple[list[dict], dict]:
     """Agent 2's actual LLM call — a single-turn query with no tools of its
-    own (tools=[]); it only reasons over the data it's handed."""
+    own (tools=[]); it only reasons over the data it's handed. Returns
+    (findings, usage) — usage is this one call's cost/token figures, for the
+    caller (the tool wrapper below, which has `state`) to tally."""
     stats = final_metrics.get("stats") or []
     errors = final_metrics.get("errors") or []
     failing_stats = [s for s in stats if s.get("num_failures", 0) > 0]
@@ -128,16 +136,18 @@ async def run_analysis(final_metrics: dict) -> list[dict]:
     )
 
     result_text = ""
+    usage = {}
     async for message in query(prompt=json.dumps(payload), options=options):
         if isinstance(message, ResultMessage):
             result_text = message.result or ""
+            usage = extract_usage(message, "analysis")
 
     cleaned = strip_json_fences(result_text)
     data = json.loads(cleaned)
     if not isinstance(data, list):
         raise ValueError(f"expected a JSON array from analysis, got: {result_text[:200]!r}")
-    log_jsonl("analysis", {"input": payload, "output": data})
-    return data
+    log_jsonl("analysis", {"input": payload, "output": data, "usage": usage})
+    return data, usage
 
 
 def build_analyze_failures_tool(state):
@@ -158,12 +168,13 @@ def build_analyze_failures_tool(state):
     async def analyze_failures_tool(args):
         await state.on_step("analysis", "active", {"note": "Inspecting failed endpoints..."})
         try:
-            result = await run_analysis(state.final_metrics)
+            result, usage = await run_analysis(state.final_metrics)
         except Exception as e:
             logger.error(f"analyze_failures failed: {e}")
             await state.on_step("analysis", "error", {"error": str(e)})
             return {"content": [{"type": "text", "text": f"Analysis failed: {e}"}], "is_error": True}
         state.analysis_result = result
+        state.llm_calls.append(usage)
         await state.on_step("analysis", "done", {"result": result})
         return {"content": [{"type": "text", "text": json.dumps(result)}]}
 

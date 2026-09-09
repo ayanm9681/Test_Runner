@@ -311,6 +311,8 @@ async def metrics_websocket(ws: WebSocket):
             payload["queue_depth"]       = job_queue.queue_depth()
             payload["current_job_id"]    = job_queue._current_job_id
             payload["current_duration"]  = job_queue.current_duration()
+            cfg = job_queue.current_config()
+            payload["require_incident_approval"] = bool(cfg.require_incident_approval) if cfg else False
             await ws.send_json(payload)
             await asyncio.sleep(2)
     except WebSocketDisconnect:

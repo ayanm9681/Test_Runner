@@ -83,7 +83,13 @@ def _render_task(ep: ApiEndpoint) -> str:
         params_expr = None
 
     # --- request call ---
-    call_kwargs = [f'name="{ep.name}"', "headers=_headers", f"timeout={ep.timeout}"]
+    # catch_response=True is required for resp.failure(...) below to have any
+    # effect. Without it, Locust auto-reports pass/fail the instant the HTTP
+    # call returns (via its own raise_for_status(), producing a generic
+    # "500 Server Error..." message with no body) — and calling resp.failure()
+    # on a response that wasn't opened with catch_response=True doesn't
+    # override that message, it raises locust.exception.LocustError instead.
+    call_kwargs = [f'name="{ep.name}"', "headers=_headers", f"timeout={ep.timeout}", "catch_response=True"]
     if ep.method in (HttpMethod.POST, HttpMethod.PUT, HttpMethod.PATCH):
         call_kwargs.append(f"json={body_expr}" if body_expr else "json=None")
     if params_expr:

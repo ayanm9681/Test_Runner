@@ -43,6 +43,7 @@ Every step is reported through on_step(agent, status, detail) so the caller
 import json
 import logging
 import time
+import uuid
 from typing import Awaitable, Callable, Optional
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, create_sdk_mcp_server, query
@@ -50,7 +51,7 @@ from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, create_sdk_mcp_s
 import agents_analysis
 import agents_decisioning
 import agents_incident
-from agents_common import log_jsonl
+from agents_common import extract_usage, log_jsonl
 
 logger = logging.getLogger("agents.orchestrator")
 
@@ -68,20 +69,28 @@ job is routing — deciding which agent to invoke and in what order — not judg
 just finished. You are given a summary of per-endpoint failure rates and response times for the
 whole run — this may show zero failures (a clean pass) or some failures.
 
-Follow this procedure exactly:
-- If total_failures is 0: the run was clean. State that in one sentence. Do not call any tool.
-- If total_failures > 0:
-  1. Call the analyze_failures tool (no arguments) to get a categorized, root-cause read on what
-     is actually happening.
-  2. Call the decide_escalation tool (no arguments) to have the decisioning step judge, from that
-     categorized read, whether this warrants an incident. You must call analyze_failures before
-     this — it will refuse otherwise. Do not make the escalate/pass judgment yourself; that
-     decision belongs to decide_escalation, not you.
-  3. If decide_escalation returned "escalate", call submit_incident, passing test_time as an
-     ISO-8601 UTC timestamp for when this test ran, to file the incident.
-  4. If decide_escalation returned "pass", do not call submit_incident.
-  5. Report back in one or two sentences what was decided (citing decide_escalation's reasoning)
-     and the resulting incident number if one was filed.
+Decisioning now makes a PER-ENDPOINT call, not one call for the whole test — it independently
+checks every endpoint, including ones with zero failures (a slow-but-not-failing endpoint can still
+be escalated on response-time grounds alone). Because of that, you always run the full chain, even
+on a totally clean run — a clean run just means decide_escalation will most likely resolve every
+endpoint to "pass" on its own, which is a real answer, not something to skip finding out.
+
+Follow this procedure exactly, every time:
+1. Call the analyze_failures tool (no arguments) to get a categorized, root-cause read on whichever
+   endpoints failed (if none did, it simply returns an empty list — that's expected, not an error).
+2. Call the decide_escalation tool (no arguments) to have the decisioning step judge, per endpoint,
+   whether it warrants an incident. You must call analyze_failures before this — it will refuse
+   otherwise. Do not make any escalate/pass judgment yourself; that decision belongs to
+   decide_escalation, not you.
+3. If decide_escalation marked at least one endpoint "escalate", call submit_incident once, passing
+   test_time as an ISO-8601 UTC timestamp for when this test ran. It files one incident per
+   escalated endpoint internally and returns a per-endpoint outcome — some endpoints may still end
+   up not filed (e.g. a human reviewer rejects one, or Analysis had already categorized it
+   business_logic) even when others are. That is a valid, expected outcome, not an error.
+4. If decide_escalation marked every endpoint "pass", do not call submit_incident.
+5. Report back in one or two sentences: how many endpoints were escalated and why (citing the
+   driving numbers — failure rate, or response-time drift — and category where relevant), and how
+   many incidents actually ended up filed vs. declined and why.
 """
 
 ORCHESTRATOR_MIDRUN_SYSTEM_PROMPT = """You are the central decisioning agent for a load-testing
@@ -109,14 +118,26 @@ class OrchestratorRunState:
     tools close over: this run's current metrics (final, or a partial mid-run
     snapshot), the analysis result once produced (also the enforcement point
     stopping decide_escalation/submit_incident from firing without it), the
-    decisioning result once produced, and the resulting incident record."""
+    per-endpoint decisioning result once produced, the incidents actually
+    filed (one entry per escalated endpoint, not one per test), and (final
+    mode only) whether this test opted into a human-approval gate before
+    filing — each escalated endpoint gets its own run_id derived from this
+    run's own run_id, see agents_incident.py's module docstring."""
 
     def __init__(self, final_metrics: dict, on_step: OnStep):
         self.final_metrics = final_metrics
         self.on_step = on_step
+        self.run_id = uuid.uuid4().hex[:8]
         self.analysis_result: Optional[list[dict]] = None
-        self.decision_result: Optional[dict] = None
-        self.incident_record: Optional[dict] = None
+        self.decision_result: Optional[list[dict]] = None
+        self.incident_records: list[dict] = []
+        self.require_human_approval: bool = False
+        self.human_review_result: Optional[dict] = None
+        # Every LLM call's cost/token usage this invocation makes — this
+        # session's own top-level query below, plus whatever the Analysis and
+        # Decisioning tool wrappers append onto it as they run. monitor.py
+        # folds this into the whole test's running total (see MonitorAgentState.llm_calls).
+        self.llm_calls: list[dict] = []
 
 
 class OrchestratorHostState:
@@ -137,7 +158,9 @@ def should_invoke_midrun(state: OrchestratorHostState) -> bool:
     return (time.time() - state.last_midrun_call_ts) >= MIN_MIDRUN_INTERVAL_SECONDS
 
 
-async def run_orchestrator_for_test(metrics: dict, on_step: OnStep, is_final: bool = True) -> dict:
+async def run_orchestrator_for_test(
+    metrics: dict, on_step: OnStep, is_final: bool = True, require_human_approval: bool = False,
+) -> dict:
     """Run the central decisioning agent once.
 
     is_final=True (test just ended, always called regardless of pass/fail):
@@ -145,10 +168,16 @@ async def run_orchestrator_for_test(metrics: dict, on_step: OnStep, is_final: bo
     is_final=False (mid-run, triggered by a CONCERNING flag from Monitor):
         investigate-only — only analyze_failures is registered, so
         submit_incident cannot be called even if the model tried.
+    require_human_approval: this test's TestConfig.require_incident_approval
+        flag, passed through unconditionally — it's only actually consulted
+        by submit_incident, which mid-run mode can never reach anyway.
 
-    Returns {"escalated": bool, "final_text": str, "incident": dict | None}.
+    Returns {"incident_filed": bool, "final_text": str, "incidents": list[dict],
+    "analysis": list | None, "decision": list[dict] | None, "human_review": dict | None,
+    "llm_calls": list[dict]}.
     """
     state = OrchestratorRunState(metrics, on_step)
+    state.require_human_approval = require_human_approval
 
     # ### MCP: assemble this run's in-process server ###
     # A fresh server (and fresh tool closures over a fresh `state`) per
@@ -189,6 +218,9 @@ async def run_orchestrator_for_test(metrics: dict, on_step: OnStep, is_final: bo
                 "num_failures": s.get("num_failures"),
                 "failure_rate": round(s.get("failure_rate", 0), 2),
                 "avg_response_time": round(s.get("avg_response_time", 0), 1),
+                "p50": round(s.get("p50", 0), 1),
+                "p95": round(s.get("p95", 0), 1),
+                "p99": round(s.get("p99", 0), 1),
             }
             for s in stats
         ],
@@ -214,23 +246,30 @@ async def run_orchestrator_for_test(metrics: dict, on_step: OnStep, is_final: bo
         async for message in query(prompt=json.dumps(summary), options=options):
             if isinstance(message, ResultMessage):
                 final_text = message.result or ""
+                # This ResultMessage covers the Orchestrator's OWN multi-turn
+                # session total (its reasoning across every turn) — it does
+                # NOT include the nested Analysis/Decisioning calls, which are
+                # separate query() sessions the tool wrappers record onto
+                # state.llm_calls themselves as they run.
+                state.llm_calls.append(extract_usage(message, "orchestrator"))
     except Exception as e:
         logger.error(f"orchestrator query failed (is_final={is_final}): {e}")
         await state.on_step("orchestrator", "error", {"error": str(e), "final": is_final})
         return {
             "incident_filed": False, "final_text": f"orchestrator failed: {e}",
-            "incident": None, "analysis": None, "decision": None,
+            "incidents": [], "analysis": None, "decision": None, "human_review": None, "llm_calls": state.llm_calls,
         }
 
-    # incident_filed reflects whether submit_incident actually succeeded — NOT
-    # whether analyze_failures was called. Those are different things: a call
-    # can trigger analysis, conclude everything was business_logic, and file
-    # nothing. Conflating the two previously mislabeled the UI ("ESCALATED")
-    # on exactly that case.
-    incident_filed = state.incident_record is not None
+    # incident_filed reflects whether submit_incident actually filed at least
+    # one incident — NOT whether analyze_failures/decide_escalation ran.
+    # Those are different things: a call can trigger analysis, conclude
+    # everything was business_logic or below threshold, and file nothing.
+    # Conflating the two previously mislabeled the UI ("ESCALATED") on
+    # exactly that case.
+    incident_filed = len(state.incident_records) > 0
     log_jsonl("orchestrator", {
         "is_final": is_final, "input": summary,
-        "output": {"final_text": final_text, "incident_filed": incident_filed},
+        "output": {"final_text": final_text, "incident_filed": incident_filed, "incidents_filed": len(state.incident_records)},
     })
     await state.on_step("orchestrator", "done", {"final_text": final_text, "incident_filed": incident_filed, "final": is_final})
 
@@ -240,7 +279,9 @@ async def run_orchestrator_for_test(metrics: dict, on_step: OnStep, is_final: bo
     return {
         "incident_filed": incident_filed,
         "final_text": final_text,
-        "incident": state.incident_record,
+        "incidents": state.incident_records,
         "analysis": state.analysis_result,
         "decision": state.decision_result,
+        "human_review": state.human_review_result,
+        "llm_calls": state.llm_calls,
     }

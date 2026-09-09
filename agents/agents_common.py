@@ -24,6 +24,24 @@ def strip_json_fences(text: str) -> str:
     return text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
 
+def extract_usage(message, agent: str) -> dict:
+    """Every nested LLM call in this pipeline gets back a ResultMessage
+    carrying real cost/token figures (message.total_cost_usd, message.usage)
+    — this just standardizes pulling them into one small dict so every
+    caller (agents_monitor/analysis/decisioning/orchestrator) can append the
+    same shape onto a per-test tally. cost_usd is the SDK's own computed
+    figure at list token pricing — under Claude Code subscription auth (as
+    opposed to a raw ANTHROPIC_API_KEY) that's an estimate, not necessarily
+    what you're literally billed, which the UI should say plainly."""
+    usage = getattr(message, "usage", None) or {}
+    return {
+        "agent": agent,
+        "cost_usd": getattr(message, "total_cost_usd", None) or 0.0,
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+    }
+
+
 def log_jsonl(name: str, entry: dict) -> None:
     """Append one entry to logs/<name>_<date>.jsonl, so every agent's calls
     are inspectable after the fact. `name` is the agent ('monitor',

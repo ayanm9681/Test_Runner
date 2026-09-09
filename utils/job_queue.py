@@ -235,6 +235,10 @@ class JobQueue:
             return self.runner._config.duration
         return 0
 
+    def current_config(self) -> Optional[TestConfig]:
+        """Config of the currently-running (or just-finished, until reset) test."""
+        return self.runner._config
+
     # ── internal ───────────────────────────────────────────────────────────────
 
     def _prune_inactive(self) -> None:

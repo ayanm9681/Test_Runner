@@ -38,7 +38,7 @@
     70%{box-shadow:0 0 0 7px rgba(61,220,132,0)}
     100%{box-shadow:0 0 0 0 rgba(61,220,132,0)}
   }
-  .layout{display:grid;grid-template-columns:230px 1fr;gap:1.2rem;max-width:1400px;margin:0 auto;padding:1.2rem 1.4rem;align-items:start}
+  .layout{display:grid;grid-template-columns:380px 1fr;gap:1.2rem;max-width:1500px;margin:0 auto;padding:1.2rem 1.4rem;align-items:start}
   @media (max-width:980px){.layout{grid-template-columns:1fr}}
   main{padding:0;max-width:1100px;margin:0;display:flex;flex-direction:column;gap:1rem;min-width:0}
   .card{
@@ -63,7 +63,7 @@
   .tile{background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:.55rem .7rem}
   .tile-label{font-size:.56rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
   .tile-val{font-size:1.05rem;font-weight:700;margin-top:.2rem}
-  .log{max-height:230px;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:.35rem}
+  .log{max-height:420px;overflow-y:auto;display:flex;flex-direction:column-reverse;gap:.35rem}
   .log-row{display:flex;gap:.5rem;padding:.4rem .6rem;border-radius:6px;background:var(--s2);border:1px solid var(--border);font-size:.72rem;animation:fade-in .28s ease}
   .log-row .st{font-weight:800;min-width:74px}
   .log-row .st.OK{color:var(--green)}
@@ -107,17 +107,33 @@
   .verify-ok{color:var(--green);font-size:.66rem}
   .verify-bad{color:var(--red);font-size:.66rem}
 
+  .review-actions{display:flex;gap:.55rem;margin-top:.55rem}
+  .review-btn{font-family:var(--mono);font-size:.68rem;font-weight:700;padding:.4rem .85rem;border-radius:6px;border:1px solid var(--border);cursor:pointer;background:var(--s1);color:var(--text)}
+  .review-btn.approve{border-color:rgba(61,220,132,.4);color:var(--green)}
+  .review-btn.approve:hover{background:rgba(61,220,132,.12)}
+  .review-btn.reject{border-color:rgba(255,92,108,.4);color:var(--red)}
+  .review-btn.reject:hover{background:rgba(255,92,108,.12)}
+  .human-review-line{margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--border);font-size:.74rem}
+  .human-review-line b{color:var(--text)}
+  .review-rec{font-size:.66rem;color:var(--muted);margin-top:.4rem}
+  .review-reason{width:100%;margin-top:.5rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.4rem .55rem;color:var(--text);font-family:var(--mono);font-size:.7rem;resize:vertical;min-height:2.2rem}
+  .review-reason:focus{outline:none;border-color:var(--accent)}
+  .suggested-fix{margin-top:.2rem;color:var(--muted);font-size:.72rem}
+  .suggested-fix b{color:var(--text);font-weight:700}
+
   footer{text-align:center;color:var(--muted);font-size:.62rem;letter-spacing:.03em;padding:1.6rem 1rem 2rem;opacity:.75}
 
   #summary-card{border-color:#3a4470;background:linear-gradient(165deg,var(--s1),var(--s2))}
   .summary-findings{margin-top:.5rem}
   .summary-incident{margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--border)}
+  .overall-review{margin-top:.6rem;padding-top:.6rem;border-top:1px solid var(--border);font-size:.78rem}
 
-  /* Agent topology (left sidebar): who calls whom, and each one's live state
-     — driven by the same idle/active/done/error vocabulary as the cards'
-     mini-status chips (setAgentStatus() updates both from one message). */
-  .topo-panel{position:sticky;top:1.1rem}
-  @media (max-width:980px){.topo-panel{position:static}}
+  /* Left sidebar: Agent Topology + Live Metrics stacked together, scrolling
+     as one sticky unit. Topology's own node states (idle/active/done/error)
+     are driven by the same vocabulary as the cards' mini-status chips
+     (setAgentStatus() updates both from one message). */
+  .topo-col{display:flex;flex-direction:column;gap:1.2rem;position:sticky;top:1.1rem}
+  @media (max-width:980px){.topo-col{position:static}}
   .topo-desc{font-size:.68rem;line-height:1.4;color:var(--muted);margin:-.35rem 0 .8rem}
   .topo-node{border:1px solid var(--border);background:var(--s2);border-radius:8px;padding:.5rem .6rem;transition:border-color .2s ease,box-shadow .2s ease}
   .topo-node.hub{background:linear-gradient(165deg,var(--s2),var(--s1))}
@@ -127,11 +143,11 @@
   .topo-label{font-size:.72rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:.4rem}
   .topo-label .mini-status{margin-left:auto}
   .topo-hint{font-size:.6rem;color:var(--muted);margin-top:.15rem}
-  .topo-arrow{display:flex;align-items:center;justify-content:center;gap:.4rem;color:var(--muted);font-size:.8rem;padding:.2rem 0}
-  .topo-arrow .topo-cond{font-size:.56rem;text-transform:uppercase;letter-spacing:.03em}
-  .topo-branch{margin:.3rem 0 0 15px;padding-left:15px;border-left:2px solid var(--border);display:flex;flex-direction:column;gap:.6rem}
+  .topo-arrow{display:flex;align-items:center;justify-content:center;gap:.4rem;color:rgba(108,140,255,.85);font-size:.95rem;padding:.2rem 0}
+  .topo-arrow .topo-cond{font-size:.56rem;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+  .topo-branch{margin:.3rem 0 0 15px;padding-left:15px;border-left:2px solid rgba(108,140,255,.45);display:flex;flex-direction:column;gap:.6rem}
   .topo-node-wrap{position:relative}
-  .topo-stub{position:absolute;left:-15px;top:50%;width:15px;height:2px;background:var(--border);transform:translateY(-50%)}
+  .topo-stub{position:absolute;left:-15px;top:50%;width:15px;height:2px;background:rgba(108,140,255,.45);transform:translateY(-50%)}
   .topo-cond{display:block;font-size:.56rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:.25rem 0 0 .1rem}
   .topo-legend{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1rem;padding-top:.7rem;border-top:1px solid var(--border);font-size:.6rem;color:var(--muted)}
   .topo-legend span{display:flex;align-items:center;gap:.35rem}
@@ -153,19 +169,20 @@
   <div class="conn"><span class="dot" id="dot"></span><span id="connText">connecting&hellip;</span></div>
 </header>
 <div class="layout">
+<div class="topo-col">
 <aside class="card topo-panel">
   <div class="card-title top">&#128506;&#65039; Agent Topology</div>
   <div class="topo-desc">Who calls whom, live.</div>
 
   <div class="topo-node" id="topo-node-monitor">
-    <div class="topo-label">&#128225; Monitor <span class="mini-status" id="topo-status-monitor">idle</span></div>
+    <div class="topo-label">&#128225; Monitor Agent <span class="mini-status" id="topo-status-monitor">idle</span></div>
     <div class="topo-hint">watches every snapshot</div>
   </div>
 
   <div class="topo-arrow">&darr; <span class="topo-cond">flag&nbsp;/&nbsp;test&nbsp;end</span></div>
 
   <div class="topo-node hub" id="topo-node-orchestrator">
-    <div class="topo-label">&#129504; Orchestrator <span class="mini-status" id="topo-status-orchestrator">idle</span></div>
+    <div class="topo-label">&#129504; Orchestrator Agent <span class="mini-status" id="topo-status-orchestrator">idle</span></div>
     <div class="topo-hint">hub &mdash; routes to each below</div>
   </div>
 
@@ -174,7 +191,7 @@
       <div class="topo-node-wrap">
         <span class="topo-stub"></span>
         <div class="topo-node" id="topo-node-analysis">
-          <div class="topo-label">&#128269; Analysis <span class="mini-status" id="topo-status-analysis">idle</span></div>
+          <div class="topo-label">&#128269; Analysis Agent <span class="mini-status" id="topo-status-analysis">idle</span></div>
         </div>
       </div>
       <span class="topo-cond">on any failure</span>
@@ -183,7 +200,7 @@
       <div class="topo-node-wrap">
         <span class="topo-stub"></span>
         <div class="topo-node" id="topo-node-decisioning">
-          <div class="topo-label">&#9878;&#65039; Decisioning <span class="mini-status" id="topo-status-decisioning">idle</span></div>
+          <div class="topo-label">&#9878;&#65039; Decisioning Agent <span class="mini-status" id="topo-status-decisioning">idle</span></div>
         </div>
       </div>
       <span class="topo-cond">final mode only</span>
@@ -192,7 +209,7 @@
       <div class="topo-node-wrap">
         <span class="topo-stub"></span>
         <div class="topo-node" id="topo-node-incident">
-          <div class="topo-label">&#128680; Incident <span class="mini-status" id="topo-status-incident">idle</span></div>
+          <div class="topo-label">&#128680; Incident Agent <span class="mini-status" id="topo-status-incident">idle</span></div>
         </div>
       </div>
       <span class="topo-cond">if escalate</span>
@@ -206,6 +223,20 @@
     <span><i class="topo-swatch error"></i>error</span>
   </div>
 </aside>
+
+<div class="card">
+  <div class="card-title">&#128202; Live Metrics <span style="text-transform:none;font-weight:400">(raw, every snapshot)</span></div>
+  <div class="tiles">
+    <div class="tile"><div class="tile-label">Status</div><div class="tile-val" id="mStatus">&mdash;</div></div>
+    <div class="tile"><div class="tile-label">RPS</div><div class="tile-val" id="mRps">&mdash;</div></div>
+    <div class="tile"><div class="tile-label">Avg RT (ms)</div><div class="tile-val" id="mAvg">&mdash;</div></div>
+    <div class="tile"><div class="tile-label">P95 RT (ms)</div><div class="tile-val" id="mP95">&mdash;</div></div>
+    <div class="tile"><div class="tile-label">Requests</div><div class="tile-val" id="mReq">&mdash;</div></div>
+    <div class="tile"><div class="tile-label">Failures</div><div class="tile-val" id="mFail">&mdash;</div></div>
+    <div class="tile"><div class="tile-label">Users</div><div class="tile-val" id="mUsers">&mdash;</div></div>
+  </div>
+</div>
+</div>
 <main>
   <!-- Test Summary: appears once a test's pipeline finishes; hidden until then -->
   <div class="card" id="summary-card" style="display:none">
@@ -220,33 +251,18 @@
     <div class="steps tall" id="steps-orchestrator"><div class="empty">No activity yet.</div></div>
   </div>
 
-  <!-- Monitor (compact) + Live Metrics, side by side -->
-  <div class="row-2col">
-    <div class="card">
-      <div class="card-title">&#128225; Agent 1 &mdash; Monitor <span class="mini-status" id="status-monitor">idle</span></div>
-      <div class="card-desc">Watches live metrics and classifies each judged moment OK or CONCERNING.</div>
-      <div class="badge-row">
-        <span class="badge WATCHING" id="badge">WATCHING</span>
-        <span class="reason" id="reason">Waiting for the first classification&hellip;</span>
-        <span class="frozen-tag" id="frozenTag" style="display:none">test ended &mdash; frozen</span>
-      </div>
-      <div class="meta" id="meta"></div>
-      <div class="subhdr">Verdict Log</div>
-      <div class="log" id="log"><div class="empty">No verdicts yet.</div></div>
+  <!-- Monitor: full width now that Live Metrics moved to the left sidebar -->
+  <div class="card">
+    <div class="card-title">&#128225; Agent 1 &mdash; Monitor <span class="mini-status" id="status-monitor">idle</span></div>
+    <div class="card-desc">Watches live metrics and classifies each judged moment OK or CONCERNING.</div>
+    <div class="badge-row">
+      <span class="badge WATCHING" id="badge">WATCHING</span>
+      <span class="reason" id="reason">Waiting for the first classification&hellip;</span>
+      <span class="frozen-tag" id="frozenTag" style="display:none">test ended &mdash; frozen</span>
     </div>
-
-    <div class="card">
-      <div class="card-title">&#128202; Live Metrics <span style="text-transform:none;font-weight:400">(raw, every snapshot)</span></div>
-      <div class="tiles">
-        <div class="tile"><div class="tile-label">Status</div><div class="tile-val" id="mStatus">&mdash;</div></div>
-        <div class="tile"><div class="tile-label">RPS</div><div class="tile-val" id="mRps">&mdash;</div></div>
-        <div class="tile"><div class="tile-label">Avg RT (ms)</div><div class="tile-val" id="mAvg">&mdash;</div></div>
-        <div class="tile"><div class="tile-label">P95 RT (ms)</div><div class="tile-val" id="mP95">&mdash;</div></div>
-        <div class="tile"><div class="tile-label">Requests</div><div class="tile-val" id="mReq">&mdash;</div></div>
-        <div class="tile"><div class="tile-label">Failures</div><div class="tile-val" id="mFail">&mdash;</div></div>
-        <div class="tile"><div class="tile-label">Users</div><div class="tile-val" id="mUsers">&mdash;</div></div>
-      </div>
-    </div>
+    <div class="meta" id="meta"></div>
+    <div class="subhdr">Verdict Log</div>
+    <div class="log" id="log"><div class="empty">No verdicts yet.</div></div>
   </div>
 
   <!-- Analysis -> Decisioning -> Incident, the escalation pipeline in order -->
@@ -332,14 +348,18 @@ function freezeVerdictForEndedTest(ts){
 
 function esc(s){ return String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 
+// "awaiting_review" is a mouthful for a small chip — everywhere a raw status
+// string gets displayed, show this instead.
+function statusLabel(status){ return status === "awaiting_review" ? "Waiting" : status; }
+
 function setAgentStatus(agent, status){
   // Drives both the card's own mini-status chip and the topology panel's
   // copy of the same chip/node from one message — they're just two views
   // onto the same idle/active/done/error state, never tracked separately.
-  const stateClass = status === "active" ? "active" : status === "error" ? "error" : status === "done" ? "done" : "";
+  const stateClass = (status === "active" || status === "awaiting_review") ? "active" : status === "error" ? "error" : status === "done" ? "done" : "";
   for(const prefix of ["status", "topo-status"]){
     const el = $(`${prefix}-${agent}`);
-    if(el){ el.className = "mini-status " + stateClass; el.textContent = status; }
+    if(el){ el.className = "mini-status " + stateClass; el.textContent = statusLabel(status); }
   }
   const node = $(`topo-node-${agent}`);
   if(node){
@@ -352,7 +372,8 @@ function renderStepBody(agent, status, detail){
   if(status === "error"){
     const phase = (agent === "orchestrator" && detail.final !== undefined)
       ? (detail.final ? "Final Decision — " : "Interim Check — ") : "";
-    return `<div class="step-body">${phase}${esc(detail.error || "unknown error")}</div>`;
+    const epCtx = detail.api ? `${esc(detail.api)} [${esc(detail.method || "")}] &mdash; ` : "";
+    return `<div class="step-body">${phase}${epCtx}${esc(detail.error || "unknown error")}</div>`;
   }
   if(agent === "orchestrator"){
     const phase = detail.final ? "Final Decision" : "Interim Check";
@@ -377,7 +398,8 @@ function renderStepBody(agent, status, detail){
     if(status === "done"){
       const items = (detail.result || []).map(r => {
         const cat = r.category || "unclear";
-        return `<div class="analysis-item"><span class="cat-tag ${cat}">${esc(cat.replace(/_/g," "))}</span><b>${esc(r.api)} [${esc(r.method)}]</b> &mdash; ${esc(r.likely_cause || "")}</div>`;
+        const fixLine = r.suggested_fix ? `<div class="suggested-fix">&#128295; <b>Fix:</b> ${esc(r.suggested_fix)}</div>` : "";
+        return `<div class="analysis-item"><span class="cat-tag ${cat}">${esc(cat.replace(/_/g," "))}</span><b>${esc(r.api)} [${esc(r.method)}]</b> &mdash; ${esc(r.likely_cause || "")}${fixLine}</div>`;
       }).join("");
       return `<div class="step-body">${(detail.result||[]).length} failing endpoint(s) analyzed:${items}</div>`;
     }
@@ -387,21 +409,47 @@ function renderStepBody(agent, status, detail){
       return `<div class="step-body">${esc(detail.note || "")}</div>`;
     }
     if(status === "done"){
-      const r = detail.result || {};
-      const tagClass = r.decision === "escalate" ? "system_fault" : "business_logic";
-      return `<div class="step-body"><span class="cat-tag ${tagClass}">${esc(r.decision || "?")}</span>${esc(r.reasoning || "")}</div>`;
+      const results = detail.result || [];
+      const items = results.map(r => {
+        const tagClass = r.decision === "escalate" ? "system_fault" : "business_logic";
+        return `<div class="analysis-item"><span class="cat-tag ${tagClass}">${esc(r.decision || "?")}</span><b>${esc(r.api)} [${esc(r.method)}]</b> &mdash; ${esc(r.reasoning || "")}</div>`;
+      }).join("");
+      return `<div class="step-body">${detail.escalated_count ?? 0} of ${results.length} endpoint(s) marked to escalate:${items}</div>`;
     }
   }
   if(agent === "incident"){
+    // Each escalated endpoint gets its own review/file cycle, so these steps
+    // are per-endpoint too — the api/method line is what ties a run of
+    // awaiting_review -> active -> done steps together for one endpoint.
+    if(status === "awaiting_review"){
+      const mins = Math.round((detail.timeout_seconds || 600) / 60);
+      return `<div class="step-body">
+        <div><b>Human confirmation needed</b> &mdash; ${esc(detail.api)} [${esc(detail.method)}]</div>
+        <div style="color:var(--muted);margin-top:.2rem">${esc(detail.reasoning || "Decisioning recommended filing an incident.")}</div>
+        <div class="review-rec">Recommended: <span class="cat-tag system_fault">escalate</span></div>
+        <textarea class="review-reason" id="reason-${esc(detail.run_id)}" placeholder="Optional: reason, especially if you're rejecting..."></textarea>
+        <div class="review-actions">
+          <button class="review-btn approve" onclick="respondReview('${esc(detail.run_id)}', true)">Approve &amp; File</button>
+          <button class="review-btn reject" onclick="respondReview('${esc(detail.run_id)}', false)">Reject</button>
+        </div>
+        <div class="topo-hint" style="margin-top:.4rem">Auto-files in ${mins} min if nobody responds.</div>
+      </div>`;
+    }
     if(status === "active"){
       return `<div class="step-body">${esc(detail.note || "")}</div>`;
     }
     if(status === "done"){
+      if(detail.skipped){
+        const reasonLine = detail.human_reason ? `<div style="margin-top:.3rem;color:var(--muted)">Reviewer note: ${esc(detail.human_reason)}</div>` : "";
+        return `<div class="step-body"><b>${esc(detail.api)} [${esc(detail.method)}]</b> &mdash; ${esc(detail.note || "Incident submission skipped.")}${reasonLine}</div>`;
+      }
       const rec = detail.record || {};
+      const reviewNote = {approved: " (human-approved)", timed_out: " (auto-filed, unreviewed)"}[detail.review_status] || "";
       const verifyLine = detail.verified
         ? `<div class="verify-ok">&#10003; verified via GET /incidents/${esc(rec.incident_number)}</div>`
         : `<div class="verify-bad">could not verify via GET afterward</div>`;
-      return `<div class="step-body"><div class="incident-num">Incident ${esc(rec.incident_number)}</div>${verifyLine}<div class="mono-block">${esc(JSON.stringify(rec, null, 2))}</div></div>`;
+      const humanNoteLine = detail.human_reason ? `<div style="margin-top:.2rem;color:var(--muted)">Reviewer note: ${esc(detail.human_reason)}</div>` : "";
+      return `<div class="step-body"><div>${esc(detail.api)} [${esc(detail.method)}]</div><div class="incident-num">Incident ${esc(rec.incident_number)}${reviewNote}</div>${verifyLine}<div style="color:var(--muted);margin-top:.3rem">${esc(detail.reasoning || "")}</div>${humanNoteLine}</div>`;
     }
   }
   return `<div class="step-body">${esc(JSON.stringify(detail))}</div>`;
@@ -423,26 +471,78 @@ function renderAgentStep(payload){
   const row = document.createElement("div");
   row.className = "step";
   row.innerHTML = `<div class="step-hdr">
-      <span class="step-status ${status === 'error' ? 'error' : ''}">${status}</span>
+      <span class="step-status ${status === 'error' ? 'error' : ''}">${statusLabel(status)}</span>
       <span class="step-ts">${d.toLocaleTimeString()}</span>
     </div>${renderStepBody(agent, status, detail)}`;
   stepsEl.prepend(row);
   while(stepsEl.children.length > 40) stepsEl.removeChild(stepsEl.lastChild);
 }
 
+function renderOverallReviewBlock(ov){
+  if(!ov || !ov.required) return "";
+  const compLabel = ov.computed === "issues_found" ? "ISSUES FOUND" : "PASSED";
+  const compTag = ov.computed === "issues_found" ? "system_fault" : "business_logic";
+  if(ov.status === "pending"){
+    const oppLabel = ov.computed === "issues_found" ? "PASSED" : "ISSUES FOUND";
+    const mins = Math.round((ov.timeout_seconds || 600) / 60);
+    return `<div class="overall-review" id="overall-review-block">
+      <div><b>Overall outcome needs confirmation</b> &mdash; computed: <span class="cat-tag ${compTag}">${compLabel}</span></div>
+      <textarea class="review-reason" id="reason-${esc(ov.run_id)}" placeholder="Optional: reason if you override..."></textarea>
+      <div class="review-actions">
+        <button class="review-btn approve" onclick="respondReview('${esc(ov.run_id)}', true)">Confirm: ${compLabel} (recommended)</button>
+        <button class="review-btn reject" onclick="respondReview('${esc(ov.run_id)}', false)">Override to: ${oppLabel}</button>
+      </div>
+      <div class="topo-hint" style="margin-top:.4rem">Auto-confirms in ${mins} min if nobody responds.</div>
+    </div>`;
+  }
+  const statusLabel = {confirmed: "confirmed", overridden: "overridden", timed_out: "timed out — auto-confirmed"}[ov.status] || ov.status;
+  const finalNote = ov.status === "overridden" ? ` to <b>${ov.final === "issues_found" ? "ISSUES FOUND" : "PASSED"}</b>` : "";
+  const reasonLine = ov.reason ? `<div style="margin-top:.2rem;color:var(--muted)">Reviewer note: ${esc(ov.reason)}</div>` : "";
+  return `<div class="overall-review"><b>Overall Outcome:</b> computed <span class="cat-tag ${compTag}">${compLabel}</span> &mdash; ${esc(statusLabel)}${finalNote}${reasonLine}</div>`;
+}
+
 function renderTestSummary(summary){
   const outcome = summary.incident_filed ? "ISSUES FOUND" : "PASSED";
   const outcomeClass = summary.incident_filed ? "CONCERNING" : "OK";
   const mc = summary.monitor_checks || {ok:0, concerning:0, error:0};
+  const lu = summary.llm_usage || {call_count: 0, cost_usd: 0};
 
   const findings = (summary.findings || []).map(f => {
     const cat = f.category || "unclear";
-    return `<div class="analysis-item"><span class="cat-tag ${cat}">${esc(cat.replace(/_/g," "))}</span><b>${esc(f.api)} [${esc(f.method)}]</b> &mdash; ${esc(f.likely_cause || "")}</div>`;
+    const fixLine = f.suggested_fix ? `<div class="suggested-fix">&#128295; <b>Fix:</b> ${esc(f.suggested_fix)}</div>` : "";
+    return `<div class="analysis-item"><span class="cat-tag ${cat}">${esc(cat.replace(/_/g," "))}</span><b>${esc(f.api)} [${esc(f.method)}]</b> &mdash; ${esc(f.likely_cause || "")}${fixLine}</div>`;
   }).join("") || `<div class="empty">No failing endpoints &mdash; every request succeeded.</div>`;
 
-  const incidentBlock = summary.incident_filed && summary.incident
-    ? `<div class="summary-incident"><div class="incident-num">Incident ${esc(summary.incident.incident_number)}</div></div>`
+  // Decisioning's per-endpoint list is the authoritative "what got escalated
+  // and why" — it covers latency-only escalations too, which never show up
+  // in findings (Analysis only ever sees endpoints that actually failed).
+  const decisions = summary.decision || [];
+  const escalatedDecisions = decisions.filter(d => d.decision === "escalate");
+  const decisionBlock = escalatedDecisions.length
+    ? escalatedDecisions.map(d => `<div class="analysis-item"><span class="cat-tag system_fault">escalate</span><b>${esc(d.api)} [${esc(d.method)}]</b> &mdash; ${esc(d.reasoning || "")}</div>`).join("")
+    : `<div class="empty">No endpoint met the bar for escalation.</div>`;
+
+  const incidents = summary.incidents || [];
+  const incidentBlock = incidents.length
+    ? incidents.map(i => {
+        const rec = i.record || {};
+        return `<div class="summary-incident"><div class="incident-num">Incident ${esc(rec.incident_number)}</div> <span style="color:var(--muted);font-size:.72rem">${esc(i.api)} [${esc(i.method)}]</span><div style="margin-top:.25rem;font-size:.76rem">${esc(i.reasoning || "")}</div></div>`;
+      }).join("")
     : `<div class="summary-incident" style="color:var(--muted);font-size:.74rem">No incident filed.</div>`;
+
+  const hr = summary.human_review || {required: false, entries: []};
+  const hrLabel = {approved: "approved", rejected: "rejected", timed_out: "timed out (auto-filed)"};
+  const humanReviewBlock = (hr.required && hr.entries && hr.entries.length)
+    ? `<div class="human-review-line">&#128100; <b>Human Review (per endpoint):</b> ` +
+      hr.entries.map(e => {
+        let line = `${esc(e.api)} [${esc(e.method)}]: recommended ${esc(e.recommended || "escalate")} &rarr; ${esc(hrLabel[e.status] || e.status)}`;
+        if(e.reason) line += ` <i>(${esc(e.reason)})</i>`;
+        return line;
+      }).join("; ") +
+      `</div>`
+    : "";
+
+  const overallReviewBlock = renderOverallReviewBlock(summary.overall_review);
 
   $("summary-body").innerHTML = `
     <div class="badge-row">
@@ -456,16 +556,47 @@ function renderTestSummary(summary){
       <div class="tile"><div class="tile-label">Users</div><div class="tile-val">${summary.user_count ?? "—"}</div></div>
       <div class="tile"><div class="tile-label">Monitor OK</div><div class="tile-val">${mc.ok}</div></div>
       <div class="tile"><div class="tile-label">Monitor Flags</div><div class="tile-val">${mc.concerning}</div></div>
+      <div class="tile"><div class="tile-label">LLM Calls</div><div class="tile-val">${lu.call_count}</div></div>
+      <div class="tile"><div class="tile-label">Est. Cost</div><div class="tile-val">$${(lu.cost_usd || 0).toFixed(4)}</div></div>
     </div>
     <div class="subhdr">Issues &amp; Root Causes</div>
     <div class="summary-findings">${findings}</div>
+    <div class="subhdr">Escalation Decisions</div>
+    <div class="summary-findings">${decisionBlock}</div>
+    ${humanReviewBlock}
     ${incidentBlock}
+    ${overallReviewBlock}
   `;
   $("summary-card").style.display = "flex";
 }
 
+let wsRef = null;
+
+function respondReview(runId, approved){
+  const reasonEl = $(`reason-${runId}`);
+  const reason = reasonEl ? reasonEl.value.trim() : "";
+  if(wsRef && wsRef.readyState === WebSocket.OPEN){
+    wsRef.send(JSON.stringify({type: "human_review_response", run_id: runId, approved, reason}));
+  }
+  const reasonSuffix = reason ? ` &mdash; ${esc(reason)}` : "";
+  if(runId.startsWith("overall-")){
+    // The whole-test overall-outcome review lives inside the Test Summary
+    // card, not a per-agent step — optimistic feedback goes there instead.
+    const block = $("overall-review-block");
+    if(block) block.innerHTML = `Response sent: <b>${approved ? "confirmed" : "overridden"}</b>${reasonSuffix}. Waiting for the pipeline to finalize&hellip;`;
+    return;
+  }
+  // Per-endpoint incident review — optimistic feedback in the incident
+  // card's current (topmost) step. The real "done"/"skipped" step arrives
+  // once the backend actually resumes.
+  const stepsEl = $("steps-incident");
+  const body = stepsEl && stepsEl.firstElementChild && stepsEl.firstElementChild.querySelector(".step-body");
+  if(body) body.innerHTML = `Response sent: <b>${approved ? "approved" : "rejected"}</b>${reasonSuffix}. Waiting for the pipeline to continue&hellip;`;
+}
+
 function connect(){
   const ws = new WebSocket(`ws://${location.host}/agent-ws`);
+  wsRef = ws;
   ws.onopen = () => setConn(true);
   ws.onclose = () => { setConn(false); setTimeout(connect, 2000); };
   ws.onerror = () => ws.close();

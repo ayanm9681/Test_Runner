@@ -54,6 +54,12 @@ class TestConfig(BaseModel):
         default=HistoryDestination.local,
         description="Where to save the completed run"
     )
+    require_incident_approval: bool = Field(
+        default=True,
+        description="If the Sentinel agent pipeline decides to file an incident for this test, "
+                    "pause and wait for a human to approve/reject it in the Sentinel dashboard "
+                    "before filing (auto-files after 10 minutes if nobody responds).",
+    )
 
 
 class SaveConfigRequest(BaseModel):

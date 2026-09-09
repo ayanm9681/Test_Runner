@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -33,6 +34,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
+import agents_incident
 import agents_monitor
 import agents_orchestrator
 
@@ -105,14 +107,27 @@ async def broadcast_agent_step(agent: str, status: str, detail: dict) -> None:
 async def run_orchestrator_pipeline(metrics: dict, is_final: bool) -> None:
     if not is_final:
         STATE.orchestrator_agent.midrun_in_flight = True
+    # This test's own TestConfig.require_incident_approval flag, carried on
+    # every /ws/metrics snapshot from main.py — captured here rather than
+    # re-read later, since by the time this (possibly minutes-long, if a
+    # human review is pending) pipeline run finishes, LocustForge may already
+    # be several tests further along.
+    require_human_approval = bool(metrics.get("require_incident_approval", False))
     try:
-        result = await agents_orchestrator.run_orchestrator_for_test(metrics, broadcast_agent_step, is_final=is_final)
+        result = await agents_orchestrator.run_orchestrator_for_test(
+            metrics, broadcast_agent_step, is_final=is_final, require_human_approval=require_human_approval,
+        )
+        incidents = result.get("incidents") or []
         logger.info(
             f"Orchestrator ({'final' if is_final else 'mid-run'}) finished: incident_filed={result['incident_filed']} "
-            f"incident={(result.get('incident') or {}).get('incident_number')}"
+            f"incidents={[i.get('record', {}).get('incident_number') for i in incidents]}"
         )
+        # Every orchestrator invocation this test makes (mid-run checks *and*
+        # the one final call) contributes its own LLM cost onto the whole
+        # test's running total — see MonitorAgentState.llm_calls.
+        STATE.monitor_agent.llm_calls.extend(result.get("llm_calls") or [])
         if is_final:
-            await broadcast_test_summary(metrics, result)
+            await finalize_test_summary(metrics, result, require_human_approval)
     except Exception as e:
         logger.error(f"Orchestrator pipeline failed ({'final' if is_final else 'mid-run'}): {e}")
         await broadcast_agent_step("orchestrator", "error", {"error": str(e), "final": is_final})
@@ -121,15 +136,80 @@ async def run_orchestrator_pipeline(metrics: dict, is_final: bool) -> None:
             STATE.orchestrator_agent.midrun_in_flight = False
 
 
-# ── End-of-test summary ─────────────────────────────────────────────────────
+# ── End-of-test summary, and the overall-outcome human review ──────────────
 #
-# Code-composed, not a new LLM call: everything below was already produced by
-# an agent somewhere in the pipeline (Monitor's verdict tally, Analysis's
-# findings, the Orchestrator/Decisioning outcome, the incident record) — this
-# just gathers it into one place for the dashboard's "Test Summary" card.
+# Most of the summary is code-composed, not a new LLM call: everything in it
+# was already produced by an agent somewhere in the pipeline (Monitor's
+# verdict tally, Analysis's findings, Decisioning's per-endpoint calls, the
+# incidents actually filed, the LLM cost tally) — this just gathers it into
+# one place for the dashboard's "Test Summary" card.
+#
+# On top of the per-endpoint incident review (agents_incident.py), a test
+# that opted into human approval also gets ONE more, whole-test-level check:
+# the auto-computed overall verdict (issues_found / passed, derived from
+# whether anything actually got filed) is shown to a human, who can confirm
+# it or override it to the opposite, with an optional reason either way.
+# This is deliberately NOT an agent/LLM step — the verdict is a pure rollup
+# of results the pipeline already produced, so gating it reuses the exact
+# same register_pending_review/resolve_human_review/take_review_result
+# primitives agents_incident.py built for per-endpoint review, just keyed by
+# a run_id of its own. "approved" here means "keep the computed verdict";
+# False means "override it".
+#
+# The summary broadcasts TWICE when a human review is pending: once
+# immediately (so the card appears right away, showing the computed verdict
+# as "pending confirmation" rather than leaving the dashboard blank for up
+# to 10 more minutes), and again once resolved (or timed out) with the final
+# verdict. renderTestSummary() on both dashboards just re-renders in place.
 
-async def broadcast_test_summary(metrics: dict, orchestrator_result: dict) -> None:
+async def finalize_test_summary(metrics: dict, orchestrator_result: dict, require_human_approval: bool) -> None:
+    computed_issues_found = orchestrator_result.get("incident_filed", False)
+    # run_id lives in the summary itself (not a separate broadcast) — the
+    # dashboards render the Confirm/Override prompt straight out of
+    # summary.overall_review when status is "pending", the same way the
+    # per-endpoint prompt renders out of an agent_step's detail.
+    run_id = f"overall-{uuid.uuid4().hex[:8]}" if require_human_approval else None
+    overall_review = {
+        "required": require_human_approval,
+        "status": "pending" if require_human_approval else "not_required",
+        "computed": "issues_found" if computed_issues_found else "passed",
+        "final": "issues_found" if computed_issues_found else "passed",
+        "reason": None,
+        "run_id": run_id,
+        "timeout_seconds": agents_incident.HUMAN_REVIEW_TIMEOUT_SECONDS if require_human_approval else None,
+    }
+    await broadcast_test_summary(metrics, orchestrator_result, overall_review)
+
+    if not require_human_approval:
+        return
+
+    event = agents_incident.register_pending_review(run_id)
+    try:
+        await asyncio.wait_for(event.wait(), timeout=agents_incident.HUMAN_REVIEW_TIMEOUT_SECONDS)
+        resolved = agents_incident.take_review_result(run_id)
+        approved, reason, timed_out = resolved.get("approved"), resolved.get("reason"), False
+    except asyncio.TimeoutError:
+        agents_incident.take_review_result(run_id)
+        approved, reason, timed_out = None, None, True
+
+    if timed_out:
+        overall_review["status"] = "timed_out"
+        # final stays as computed — a non-response is never treated as an
+        # override, same "safe default" logic as the per-endpoint gate.
+    elif approved is False:
+        overall_review["status"] = "overridden"
+        overall_review["final"] = "passed" if overall_review["computed"] == "issues_found" else "issues_found"
+        overall_review["reason"] = reason
+    else:
+        overall_review["status"] = "confirmed"
+        overall_review["reason"] = reason
+
+    await broadcast_test_summary(metrics, orchestrator_result, overall_review)
+
+
+async def broadcast_test_summary(metrics: dict, orchestrator_result: dict, overall_review: dict) -> None:
     ma = STATE.monitor_agent
+    llm_cost_usd = sum(c.get("cost_usd", 0) for c in ma.llm_calls)
     summary = {
         "total_requests": metrics.get("total_requests", 0),
         "total_failures": metrics.get("total_failures", 0),
@@ -137,9 +217,14 @@ async def broadcast_test_summary(metrics: dict, orchestrator_result: dict) -> No
         "user_count": metrics.get("user_count", 0),
         "monitor_checks": {"ok": ma.ok_count, "concerning": ma.concerning_count, "error": ma.error_count},
         "findings": orchestrator_result.get("analysis") or [],
-        "decision": orchestrator_result.get("decision"),
-        "incident_filed": orchestrator_result.get("incident_filed", False),
-        "incident": orchestrator_result.get("incident"),
+        "decision": orchestrator_result.get("decision") or [],
+        # The badge/outcome reflects the FINAL verdict — the computed one,
+        # unless a human explicitly overrode it — not just what got filed.
+        "incident_filed": overall_review["final"] == "issues_found",
+        "incidents": orchestrator_result.get("incidents") or [],
+        "human_review": orchestrator_result.get("human_review"),
+        "overall_review": overall_review,
+        "llm_usage": {"call_count": len(ma.llm_calls), "cost_usd": round(llm_cost_usd, 4)},
         "final_text": orchestrator_result.get("final_text", ""),
     }
     await broadcast({"type": "test_summary", "summary": summary, "ts": time.time()})
@@ -210,7 +295,9 @@ async def handle_snapshot(metrics: dict) -> None:
     should_call, trigger_reason = agents_monitor.should_invoke(STATE.monitor_agent, metrics)
     if should_call:
         STATE.monitor_agent.last_call_ts = time.time()
-        verdict = await agents_monitor.classify_snapshot(STATE.monitor_agent, metrics)
+        verdict, usage = await agents_monitor.classify_snapshot(STATE.monitor_agent, metrics)
+        if usage:
+            STATE.monitor_agent.llm_calls.append(usage)
         verdict_status = verdict.get("status")
         if verdict_status == "OK":
             STATE.monitor_agent.ok_count += 1
@@ -273,7 +360,25 @@ async def agent_ws(ws: WebSocket):
     STATE.ui_clients.add(ws)
     try:
         while True:
-            await ws.receive_text()  # keep the connection open; UI doesn't send anything
+            raw = await ws.receive_text()
+            # The only message type the browser ever sends back: a human's
+            # approve/reject (or confirm/override) click on a pending review
+            # — per-endpoint incident review AND the whole-test overall
+            # review both use this one message type/handler, since resolving
+            # only cares about the run_id (see agents_incident.py's
+            # resolve_human_review docstring). Anything else (unparseable,
+            # or a stale/already-resolved run_id) is ignored — resolve_human_review()
+            # returns False rather than raising.
+            try:
+                msg = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if msg.get("type") == "human_review_response":
+                run_id = msg.get("run_id")
+                approved = bool(msg.get("approved"))
+                reason = msg.get("reason")
+                found = agents_incident.resolve_human_review(run_id, approved, reason)
+                logger.info(f"Human review response for run {run_id}: approved={approved} reason={reason!r} (matched={found})")
     except WebSocketDisconnect:
         pass
     finally:

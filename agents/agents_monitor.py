@@ -24,7 +24,7 @@ from typing import Optional
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
-from agents_common import log_jsonl, strip_json_fences
+from agents_common import extract_usage, log_jsonl, strip_json_fences
 
 logger = logging.getLogger("agents.monitor_agent")
 
@@ -78,6 +78,12 @@ class MonitorAgentState:
         self.ok_count = 0
         self.concerning_count = 0
         self.error_count = 0
+        # Per-test running list of every LLM call's cost/token usage, from
+        # every agent (Monitor's own classify_snapshot calls, plus whatever
+        # each Orchestrator pipeline run — mid-run or final — reports back).
+        # See monitor.py's broadcast_test_summary, which sums this for the
+        # Test Summary's cost tile. Reset alongside everything else per test.
+        self.llm_calls: list[dict] = []
 
     def reset_baseline(self):
         self.baseline_rps = None
@@ -88,6 +94,7 @@ class MonitorAgentState:
         self.ok_count = 0
         self.concerning_count = 0
         self.error_count = 0
+        self.llm_calls = []
 
     def update_baseline(self, rps: float, avg_rt: float, p95: float):
         if self.baseline_rps is None:
@@ -140,8 +147,9 @@ def should_invoke(state: MonitorAgentState, metrics: dict) -> tuple[bool, str]:
     return should_call, (trigger_reason if gate_tripped else "heartbeat")
 
 
-async def classify_snapshot(state: MonitorAgentState, metrics: dict) -> dict:
-    """Agent 1's actual LLM call."""
+async def classify_snapshot(state: MonitorAgentState, metrics: dict) -> tuple[dict, dict]:
+    """Agent 1's actual LLM call. Returns (verdict, usage) — usage is {} on
+    the error path, since no billable call actually completed there."""
     endpoint_failure_rates = {
         s.get("name", "?"): round(s.get("failure_rate", 0), 2)
         for s in (metrics.get("stats") or [])
@@ -174,15 +182,17 @@ async def classify_snapshot(state: MonitorAgentState, metrics: dict) -> dict:
     )
 
     result_text = ""
+    usage = {}
     try:
         async for message in query(prompt=json.dumps(payload), options=options):
             if isinstance(message, ResultMessage):
                 result_text = message.result or ""
+                usage = extract_usage(message, "monitor")
     except Exception as e:
         logger.error(f"Claude Agent SDK call failed: {e}")
         verdict = {"status": "ERROR", "reason": f"agent call failed: {e}"}
         log_jsonl("monitor", {"input": payload, "output": verdict})
-        return verdict
+        return verdict, {}
 
     try:
         cleaned = strip_json_fences(result_text)
@@ -192,5 +202,5 @@ async def classify_snapshot(state: MonitorAgentState, metrics: dict) -> dict:
     except Exception:
         verdict = {"status": "ERROR", "reason": f"unparseable model output: {result_text[:200]!r}"}
 
-    log_jsonl("monitor", {"input": payload, "output": verdict})
-    return verdict
+    log_jsonl("monitor", {"input": payload, "output": verdict, "usage": usage})
+    return verdict, usage

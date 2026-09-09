@@ -44,6 +44,10 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent)}
 .fg input::placeholder,.fg textarea::placeholder{color:var(--muted)}
 .fg select option{background:var(--bg)}
+.chk-row{display:flex;align-items:flex-start;gap:.5rem;margin-bottom:.6rem;cursor:pointer}
+.chk-row input{width:auto;margin-top:.15rem;accent-color:var(--accent)}
+.chk-row .chk-label{font-size:.76rem;color:var(--text)}
+.chk-row .chk-hint{display:block;font-size:.64rem;color:var(--muted);margin-top:.1rem}
 .ep-list{display:flex;flex-direction:column;gap:.4rem}
 .ep-row{display:flex;align-items:center;gap:.45rem;padding:.52rem .65rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;transition:border-color .2s;user-select:none}
 .ep-row:hover{border-color:rgba(249,115,22,.45)}
@@ -105,6 +109,25 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
 .code-block{background:var(--s1);border:1px solid var(--border);border-radius:9px;padding:1.1rem;font-family:var(--mono);font-size:.74rem;line-height:1.75;overflow-x:auto;white-space:pre;color:#cbd5e1;max-height:62vh;overflow-y:auto}
 .ck{color:#c084fc}.cs{color:var(--green)}.cc{color:var(--muted)}.cd{color:var(--accent)}
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;color:var(--muted);gap:.75rem;text-align:center}
+
+.asum-status{margin-bottom:.9rem}
+.pill.offline{color:var(--muted)}
+.pill.connected{border-color:var(--green);color:var(--green)}
+.pill.connected .pill-dot{background:var(--green)}
+.agent-summary-card{background:var(--s1);border:1px solid var(--border);border-radius:9px;padding:1.1rem 1.2rem;margin-bottom:1.35rem}
+.asum-hdr{display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin-bottom:.6rem}
+.asum-title{font-size:.78rem;font-weight:700}
+.asum-text{font-size:.8rem;color:var(--text);margin-bottom:.2rem}
+.asum-section-title{font-size:.6rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:.9rem 0 .5rem}
+.asum-finding{padding:.5rem 0;border-top:1px solid var(--border);font-size:.76rem}
+.asum-finding:first-child{border-top:none;padding-top:0}
+.asum-cat{display:inline-block;font-size:.56rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;padding:.1rem .45rem;border-radius:4px;margin-right:.45rem;vertical-align:middle}
+.asum-cat.business_logic{color:var(--green);background:rgba(74,222,128,.12)}
+.asum-cat.system_fault{color:var(--red);background:rgba(248,113,113,.12)}
+.asum-cat.unclear{color:var(--yellow);background:rgba(251,191,36,.12)}
+.asum-incident{margin-top:.7rem;padding-top:.7rem;border-top:1px solid var(--border);font-size:.8rem}
+.asum-incident b{color:var(--yellow)}
+.asum-human{margin-top:.5rem;font-size:.76rem;color:var(--muted)}
 .empty svg{opacity:.18}.empty p{font-size:.82rem}
 .err-item{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.18);border-radius:var(--r);padding:.7rem .9rem;margin-bottom:.45rem}
 .err-name{color:var(--red);font-weight:600;font-size:.78rem;margin-bottom:.2rem}
@@ -161,6 +184,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
   <div class="header-right">
     <div class="pill" id="queuePill" style="display:none"><span class="pill-dot" style="background:var(--yellow);animation:blink 1.2s infinite"></span><span id="queueText">0 queued</span></div>
     <div class="pill" id="statusPill"><span class="pill-dot"></span><span id="statusText">IDLE</span></div>
+    <a class="btn btn-s btn-sm" href="http://127.0.0.1:6010" target="_blank" rel="noopener noreferrer" title="Open the Sentinel agent monitoring dashboard in a new tab">&#128737;&#65039; Sentinel</a>
     <button class="btn btn-s btn-sm" id="historyBtn">History</button>
   </div>
 </header>
@@ -180,6 +204,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
         <div class="frow"><div class="fg"><label>Users</label><input id="users" type="number" value="10" min="1" max="1000"/></div><div class="fg"><label>Spawn Rate/s</label><input id="spawnRate" type="number" value="2" min="0.1" step="0.1"/></div></div>
         <div class="frow"><div class="fg"><label>Duration (s)</label><input id="duration" type="number" value="30" min="5" max="600"/></div><div class="fg"><label>Think Min (s)</label><input id="thinkMin" type="number" value="0.5" min="0" step="0.1"/></div></div>
         <div class="frow"><div class="fg"><label>Think Max (s)</label><input id="thinkMax" type="number" value="2" min="0" step="0.1"/></div><div class="fg"><label>Save Results</label><select id="historyTarget"><option value="local">Local JSON</option><option value="db">Database</option></select></div></div>
+        <label class="chk-row"><input id="reqApproval" type="checkbox" checked/><span><span class="chk-label">Require human approval before filing an incident</span><span class="chk-hint">If the Sentinel agent pipeline decides to escalate, it waits for you to approve/reject in the Sentinel dashboard (auto-files after 10 min if nobody responds).</span></span></label>
       </div>
       <div class="fsec"><div class="fsec-title">Endpoints</div>
         <div class="ep-list" id="epList"></div>
@@ -237,6 +262,22 @@ header{display:flex;align-items:center;justify-content:space-between;padding:0 1
           <div class="mcard"><div class="ml">Failure Rate</div><div class="mv" id="mv-frate">&#x2014;</div><div class="ms">percent</div></div>
           <div class="mcard"><div class="ml">Users</div><div class="mv" id="mv-users">&#x2014;</div><div class="ms">concurrent</div></div>
           <div class="mcard"><div class="ml">Elapsed</div><div class="mv" id="mv-elapsed">&#x2014;</div><div class="ms">seconds</div></div>
+        </div>
+        <div class="asum-status"><span class="pill offline" id="asumPill"><span class="pill-dot"></span><span id="asumPillText">Sentinel: connecting&hellip;</span></span></div>
+        <div class="agent-summary-card" id="agentSummaryCard" style="display:none">
+          <div class="asum-hdr">
+            <span class="asum-title">&#128737;&#65039; Sentinel Agent Summary</span>
+            <span class="pill" id="asumOutcomePill"><span class="pill-dot"></span><span id="asumOutcomeText">&#x2014;</span></span>
+          </div>
+          <div class="asum-text" id="asumFinalText"></div>
+          <div class="mcard-grid" style="margin-top:.7rem" id="asumLlmUsage"></div>
+          <div class="asum-section-title">Issues &amp; Root Causes</div>
+          <div id="asumFindings"></div>
+          <div class="asum-section-title">Escalation Decisions</div>
+          <div id="asumDecisions"></div>
+          <div id="asumHuman"></div>
+          <div id="asumIncident"></div>
+          <div id="asumOverall"></div>
         </div>
         <div id="ovEmpty" class="empty"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg><p>Configure endpoints and click <strong>Run Test</strong> to begin.</p></div>
       </div>
@@ -520,7 +561,7 @@ function buildConfig(){
   return{
     base_url:$("baseUrl").value.trim(),users:+$("users").value,spawn_rate:+$("spawnRate").value,
     duration:+$("duration").value,think_time_min:+$("thinkMin").value,think_time_max:+$("thinkMax").value,
-    history_target:$("historyTarget").value,
+    history_target:$("historyTarget").value,require_incident_approval:$("reqApproval").checked,
     endpoints:S.endpoints.map(e=>({name:e.name,method:e.method,path:e.path,weight:e.weight,timeout:e.timeout||10,headers:e.headers,body:e.body,
       extract:(e.extract||[]).map(r=>({var:r.var,from:r.from||"json",path:r.path})),
       inject:(e.inject||[]).map(r=>({var:r.var,into:r.into,key:r.key||undefined}))}))
@@ -645,6 +686,95 @@ function connectWS(){
 }
 // Connect on page load so queue badge updates even before first test
 connectWS();
+
+// Sentinel agent summary (separate optional process, port 6010 — LocustForge
+// has no backend dependency on it; if it isn't running this just stays
+// "offline" and the summary card never appears). Connects directly to the
+// same /agent-ws WebSocket the Sentinel dashboard itself uses, and reuses
+// its "test_summary"/"test_started" events — no new backend endpoint needed.
+let sentinelWs=null;
+function ascEsc(s){return String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+function setSentinelPill(connected){
+  const pill=$("asumPill");if(!pill)return;
+  pill.className="pill "+(connected?"connected":"offline");
+  $("asumPillText").textContent=connected?"Sentinel: connected":"Sentinel: offline";
+}
+function hideAgentSummary(){$("agentSummaryCard").style.display="none"}
+function renderAgentSummary(summary){
+  const outcomePill=$("asumOutcomePill");
+  outcomePill.className="pill "+(summary.incident_filed?"failed":"completed");
+  $("asumOutcomeText").textContent=summary.incident_filed?"Issues found":"Passed";
+  $("asumFinalText").textContent=summary.final_text||"";
+
+  const lu=summary.llm_usage||{call_count:0,cost_usd:0};
+  $("asumLlmUsage").innerHTML=
+    `<div class="mcard"><div class="ml">LLM Calls</div><div class="mv">${lu.call_count}</div><div class="ms">this run</div></div>`+
+    `<div class="mcard"><div class="ml">Est. Cost</div><div class="mv">$${(lu.cost_usd||0).toFixed(4)}</div><div class="ms">list token pricing</div></div>`;
+
+  const findings=summary.findings||[];
+  $("asumFindings").innerHTML=findings.length?findings.map(f=>{
+    const cat=f.category||"unclear";
+    const fixLine=f.suggested_fix?`<div style="margin-top:.15rem;color:var(--muted)">&#128295; <b>Fix:</b> ${ascEsc(f.suggested_fix)}</div>`:"";
+    return `<div class="asum-finding"><span class="asum-cat ${cat}">${ascEsc(cat.replace(/_/g," "))}</span><b>${ascEsc(f.api)} [${ascEsc(f.method)}]</b> &mdash; ${ascEsc(f.likely_cause||"")}${fixLine}</div>`;
+  }).join(""):`<div class="asum-finding" style="color:var(--muted)">No failing endpoints &mdash; every request succeeded.</div>`;
+
+  // Decisioning's per-endpoint list is authoritative for "what got escalated
+  // and why" — it also covers latency-only escalations, which never show up
+  // in findings since Analysis only ever sees endpoints that actually failed.
+  const escalated=(summary.decision||[]).filter(d=>d.decision==="escalate");
+  $("asumDecisions").innerHTML=escalated.length?escalated.map(d=>
+    `<div class="asum-finding"><span class="asum-cat system_fault">escalate</span><b>${ascEsc(d.api)} [${ascEsc(d.method)}]</b> &mdash; ${ascEsc(d.reasoning||"")}</div>`
+  ).join(""):`<div class="asum-finding" style="color:var(--muted)">No endpoint met the bar for escalation.</div>`;
+
+  const hr=summary.human_review||{required:false,entries:[]};
+  const hrLabel={approved:"approved",rejected:"rejected",timed_out:"timed out (auto-filed)"};
+  $("asumHuman").innerHTML=(hr.required&&hr.entries&&hr.entries.length)
+    ? `<div class="asum-human">&#128100; Human Review (per endpoint): ${hr.entries.map(e=>{
+        let line=`${ascEsc(e.api)} [${ascEsc(e.method)}]: recommended ${ascEsc(e.recommended||"escalate")} &rarr; ${ascEsc(hrLabel[e.status]||e.status)}`;
+        if(e.reason) line+=` <i>(${ascEsc(e.reason)})</i>`;
+        return line;
+      }).join("; ")}</div>`
+    : "";
+
+  const incidents=summary.incidents||[];
+  $("asumIncident").innerHTML=incidents.length
+    ? incidents.map(i=>`<div class="asum-incident">Incident <b>${ascEsc((i.record||{}).incident_number)}</b> &mdash; ${ascEsc(i.api)} [${ascEsc(i.method)}]<div style="margin-top:.2rem;color:var(--muted);font-size:.75rem">${ascEsc(i.reasoning||"")}</div></div>`).join("")
+    : `<div class="asum-incident" style="color:var(--muted)">No incident filed.</div>`;
+
+  // Overall-outcome review shows here read-only — the actual Confirm/Override
+  // interaction lives on the Sentinel dashboard, same place every other
+  // human-review button in this pipeline already lives.
+  const ov=summary.overall_review;
+  if(ov && ov.required){
+    const compLabel=ov.computed==="issues_found"?"ISSUES FOUND":"PASSED";
+    if(ov.status==="pending"){
+      $("asumOverall").innerHTML=`<div class="asum-incident" style="color:var(--muted)">Overall outcome (computed: <b>${compLabel}</b>) is awaiting human confirmation on the Sentinel dashboard.</div>`;
+    }else{
+      const statusLabel={confirmed:"confirmed",overridden:"overridden",timed_out:"timed out — auto-confirmed"}[ov.status]||ov.status;
+      const finalNote=ov.status==="overridden"?` to <b>${ov.final==="issues_found"?"ISSUES FOUND":"PASSED"}</b>`:"";
+      const reasonLine=ov.reason?`<div style="margin-top:.2rem;color:var(--muted)">Reviewer note: ${ascEsc(ov.reason)}</div>`:"";
+      $("asumOverall").innerHTML=`<div class="asum-incident"><b>Overall Outcome:</b> computed ${compLabel} &mdash; ${ascEsc(statusLabel)}${finalNote}${reasonLine}</div>`;
+    }
+  }else{
+    $("asumOverall").innerHTML="";
+  }
+
+  $("agentSummaryCard").style.display="block";
+}
+function connectSentinel(){
+  try{
+    sentinelWs=new WebSocket(`ws://${location.hostname}:6010/agent-ws`);
+  }catch{ setSentinelPill(false); setTimeout(connectSentinel,4000); return; }
+  sentinelWs.onopen=()=>setSentinelPill(true);
+  sentinelWs.onclose=()=>{setSentinelPill(false);setTimeout(connectSentinel,4000)};
+  sentinelWs.onerror=()=>sentinelWs.close();
+  sentinelWs.onmessage=(evt)=>{
+    let payload;try{payload=JSON.parse(evt.data)}catch{return}
+    if(payload.type==="test_summary")renderAgentSummary(payload.summary||{});
+    else if(payload.type==="test_started")hideAgentSummary();
+  };
+}
+connectSentinel();
 
 // Overview
 function updateOv(m){
@@ -823,6 +953,7 @@ async function applyConfig(id,src){
   if(cfg.think_time_min!==undefined)$("thinkMin").value=cfg.think_time_min;
   if(cfg.think_time_max!==undefined)$("thinkMax").value=cfg.think_time_max;
   if(cfg.history_target)$("historyTarget").value=cfg.history_target;
+  $("reqApproval").checked=cfg.require_incident_approval!==undefined?!!cfg.require_incident_approval:true;
   if(Array.isArray(cfg.endpoints)&&cfg.endpoints.length){
     S.endpoints=cfg.endpoints.map(e=>({...e,extract:e.extract||[],inject:e.inject||[]}));
     renderEps();
